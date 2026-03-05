@@ -4,6 +4,7 @@ from datetime import timedelta
 from datetime import timezone as dt_timezone
 
 from django.conf import settings
+from django.db import DatabaseError
 from django.db.models import Count
 from django.shortcuts import render
 from django.utils.decorators import method_decorator
@@ -192,63 +193,83 @@ class LatestAlertsView(APIView):
 
 class LiveFeedView(APIView):
     def get(self, request):
-        limit = min(int(request.GET.get("limit", 50)), 200)
-        since_id = request.GET.get("since_id")
-        minutes = max(1, min(int(request.GET.get("minutes", 180)), 1440))
-        include_history = request.GET.get("include_history", "0") == "1"
-        refresh = request.GET.get("refresh", "1") != "0"
-        created = []
-        refresh_error = None
-        source_status = "idle"
-        source_url = None
-        source_event_count = 0
+        try:
+            limit = min(int(request.GET.get("limit", 50)), 200)
+            since_id = request.GET.get("since_id")
+            minutes = max(1, min(int(request.GET.get("minutes", 180)), 1440))
+            include_history = request.GET.get("include_history", "0") == "1"
+            refresh = request.GET.get("refresh", "1") != "0"
+            created = []
+            refresh_error = None
+            source_status = "idle"
+            source_url = None
+            source_event_count = 0
 
-        if refresh:
-            try:
-                result = fetch_live_events_with_status()
-                created = ingest_alerts(result.events)
-                source_status = result.source_status
-                source_url = result.source_url
-                source_event_count = result.source_event_count
-                source_details = result.source_details or []
-                if result.source_error:
-                    refresh_error = result.source_error
-            except Exception as exc:
-                logger.exception("Realtime refresh failed")
-                refresh_error = str(exc)
-                source_status = "error"
+            if refresh:
+                try:
+                    result = fetch_live_events_with_status()
+                    created = ingest_alerts(result.events)
+                    source_status = result.source_status
+                    source_url = result.source_url
+                    source_event_count = result.source_event_count
+                    source_details = result.source_details or []
+                    if result.source_error:
+                        refresh_error = result.source_error
+                except Exception as exc:
+                    logger.exception("Realtime refresh failed")
+                    refresh_error = str(exc)
+                    source_status = "error"
+                    source_details = []
+            else:
                 source_details = []
-        else:
-            source_details = []
 
-        queryset = Alert.objects.order_by("-occurred_at", "-id")
-        if not include_history:
-            queryset = queryset.filter(source__in=["oref_realtime", "live_consensus"])
-        cutoff = timezone.now() - timedelta(minutes=minutes)
-        queryset = queryset.filter(occurred_at__gte=cutoff)
-        if since_id:
-            try:
-                queryset = queryset.filter(id__gt=int(since_id))
-            except ValueError:
-                queryset = queryset.none()
-        alerts = list(queryset[:limit])
+            queryset = Alert.objects.order_by("-occurred_at", "-id")
+            if not include_history:
+                queryset = queryset.filter(source__in=["oref_realtime", "live_consensus"])
+            cutoff = timezone.now() - timedelta(minutes=minutes)
+            queryset = queryset.filter(occurred_at__gte=cutoff)
+            if since_id:
+                try:
+                    queryset = queryset.filter(id__gt=int(since_id))
+                except ValueError:
+                    queryset = queryset.none()
+            alerts = list(queryset[:limit])
 
-        return Response(
-            {
-                "refreshed": refresh,
-                "new_count": len(created),
-                "newest_id": Alert.objects.order_by("-id").values_list("id", flat=True).first(),
-                "server_time": timezone.now().isoformat(),
-                "refresh_error": refresh_error,
-                "source_status": source_status,
-                "source_url": source_url,
-                "source_event_count": source_event_count,
-                "source_details": source_details,
-                "include_history": include_history,
-                "minutes": minutes,
-                "alerts": AlertSerializer(alerts, many=True).data,
-            }
-        )
+            return Response(
+                {
+                    "refreshed": refresh,
+                    "new_count": len(created),
+                    "newest_id": Alert.objects.order_by("-id").values_list("id", flat=True).first(),
+                    "server_time": timezone.now().isoformat(),
+                    "refresh_error": refresh_error,
+                    "source_status": source_status,
+                    "source_url": source_url,
+                    "source_event_count": source_event_count,
+                    "source_details": source_details,
+                    "include_history": include_history,
+                    "minutes": minutes,
+                    "alerts": AlertSerializer(alerts, many=True).data,
+                }
+            )
+        except DatabaseError as exc:
+            logger.exception("Live feed DB error")
+            return Response(
+                {
+                    "refreshed": False,
+                    "new_count": 0,
+                    "newest_id": None,
+                    "server_time": timezone.now().isoformat(),
+                    "refresh_error": f"database_error: {exc}",
+                    "source_status": "error",
+                    "source_url": None,
+                    "source_event_count": 0,
+                    "source_details": [],
+                    "include_history": request.GET.get("include_history", "0") == "1",
+                    "minutes": max(1, min(int(request.GET.get("minutes", 180)), 1440)),
+                    "alerts": [],
+                },
+                status=200,
+            )
 
 
 class PullRealtimeView(APIView):
@@ -348,22 +369,60 @@ class TopCitiesView(APIView):
 
 class RangeOverviewView(APIView):
     def get(self, request):
-        start_text = request.GET.get("start")
-        end_text = request.GET.get("end")
-        db_start = Alert.objects.order_by("occurred_at").values_list("occurred_at", flat=True).first()
-        db_end = Alert.objects.order_by("-occurred_at").values_list("occurred_at", flat=True).first()
+        try:
+            start_text = request.GET.get("start")
+            end_text = request.GET.get("end")
+            db_start = Alert.objects.order_by("occurred_at").values_list("occurred_at", flat=True).first()
+            db_end = Alert.objects.order_by("-occurred_at").values_list("occurred_at", flat=True).first()
 
-        if start_text:
-            start = parse_iso_datetime(start_text)
-        else:
-            start = db_start or ARCHIVE_DEFAULT_START
+            if start_text:
+                start = parse_iso_datetime(start_text)
+            else:
+                start = db_start or ARCHIVE_DEFAULT_START
 
-        if end_text:
-            requested_end = parse_iso_datetime(end_text)
-        else:
-            requested_end = db_end or timezone.now()
+            if end_text:
+                requested_end = parse_iso_datetime(end_text)
+            else:
+                requested_end = db_end or timezone.now()
 
-        if not db_end:
+            if not db_end:
+                return Response(
+                    {
+                        "start": start.isoformat(),
+                        "requested_end": requested_end.isoformat(),
+                        "effective_end": None,
+                        "db_start": None,
+                        "db_end": None,
+                        "total_city_rows": 0,
+                        "total_event_count": 0,
+                        "top_cities": [],
+                        "top_districts": [],
+                        "by_hour": [{"hour": hour, "count": 0} for hour in range(24)],
+                        "by_minute": [{"minute": minute, "count": 0} for minute in range(60)],
+                        "by_day": [],
+                        "by_category": [],
+                        "by_source": [],
+                        "map_points": [],
+                    }
+                )
+
+            effective_end = min(requested_end, db_end)
+            stats = calculate_event_stats(start=start, end=effective_end)
+
+            return Response(
+                {
+                    "start": start.isoformat(),
+                    "requested_end": requested_end.isoformat(),
+                    "effective_end": effective_end.isoformat(),
+                    "db_start": db_start.isoformat() if db_start else None,
+                    "db_end": db_end.isoformat() if db_end else None,
+                    **stats,
+                }
+            )
+        except DatabaseError as exc:
+            logger.exception("Range overview DB error")
+            start = parse_iso_datetime(request.GET["start"]) if request.GET.get("start") else ARCHIVE_DEFAULT_START
+            requested_end = parse_iso_datetime(request.GET["end"]) if request.GET.get("end") else timezone.now()
             return Response(
                 {
                     "start": start.isoformat(),
@@ -381,19 +440,7 @@ class RangeOverviewView(APIView):
                     "by_category": [],
                     "by_source": [],
                     "map_points": [],
-                }
+                    "error": f"database_error: {exc}",
+                },
+                status=200,
             )
-
-        effective_end = min(requested_end, db_end)
-        stats = calculate_event_stats(start=start, end=effective_end)
-
-        return Response(
-            {
-                "start": start.isoformat(),
-                "requested_end": requested_end.isoformat(),
-                "effective_end": effective_end.isoformat(),
-                "db_start": db_start.isoformat() if db_start else None,
-                "db_end": db_end.isoformat() if db_end else None,
-                **stats,
-            }
-        )

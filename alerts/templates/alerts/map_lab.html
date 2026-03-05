@@ -184,12 +184,6 @@
                         tileSize: 256,
                         attribution: "© OpenStreetMap contributors",
                     },
-                    dem: {
-                        type: "raster-dem",
-                        tiles: ["https://demotiles.maplibre.org/terrain-rgb/{z}/{x}/{y}.png"],
-                        tileSize: 256,
-                        maxzoom: 13,
-                    },
                 },
                 layers: [{ id: "light", type: "raster", source: "light" }],
                 glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
@@ -527,7 +521,6 @@
         }
 
         map.on("load", () => {
-            map.setTerrain({ source: "dem", exaggeration: 1.45 });
             if (typeof map.setFog === "function") {
                 map.setFog({
                     range: [0.5, 8],

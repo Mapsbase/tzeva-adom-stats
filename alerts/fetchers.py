@@ -204,7 +204,10 @@ def _get_json(url: str, *, headers: dict | None = None):
 def history_city_metadata() -> dict:
     if not settings.HISTORY_CITIES_URL:
         return {}
-    return _get_json(settings.HISTORY_CITIES_URL) or {}
+    try:
+        return _get_json(settings.HISTORY_CITIES_URL) or {}
+    except Exception:  # noqa: BLE001
+        return {}
 
 
 @lru_cache(maxsize=1)
