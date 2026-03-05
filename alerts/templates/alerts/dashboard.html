@@ -52,6 +52,53 @@
                 linear-gradient(180deg, #090c13 0%, #0e1320 54%, #0a0d14 100%);
         }
 
+        .top-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: var(--layout-gap);
+            padding: 10px 14px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: linear-gradient(180deg, rgba(20, 27, 43, 0.92), rgba(11, 16, 28, 0.9));
+            backdrop-filter: blur(2px);
+        }
+
+        .top-nav .brand {
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            color: #f2f6ff;
+            font-size: 14px;
+        }
+
+        .top-nav .links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .top-nav .links a {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 34px;
+            padding: 0 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--muted-strong);
+            background: rgba(255, 255, 255, 0.03);
+            text-decoration: none;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .top-nav .links a.active {
+            background: linear-gradient(135deg, var(--danger), #a21212);
+            border-color: transparent;
+            color: #fff;
+        }
+
         .shell {
             width: 100%;
             max-width: 100%;
@@ -494,6 +541,13 @@
                 right: 8px;
                 width: auto;
             }
+            .top-nav {
+                flex-direction: column;
+                align-items: stretch;
+                padding: 10px;
+            }
+            .top-nav .brand { text-align: center; }
+            .top-nav .links { justify-content: center; }
         }
 
         @media (max-width: 520px) {
@@ -512,6 +566,15 @@
 <body>
     <div class="threat-popups" id="threat-popups"></div>
     <div class="shell">
+        <nav class="top-nav">
+            <div class="brand">RedAlert Control</div>
+            <div class="links">
+                <a href="/" class="active">Dashboard</a>
+                <a href="/map-lab/">Map Lab</a>
+                <a href="/api/alerts/feed?limit=50&refresh=0" target="_blank" rel="noopener">Live API</a>
+                <a href="/admin/" target="_blank" rel="noopener">Admin</a>
+            </div>
+        </nav>
         <section class="hero">
             <div class="panel hero-main">
                 <div class="eyebrow" id="hero-eyebrow">Realtime Civil Alert Monitor</div>

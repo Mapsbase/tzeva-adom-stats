@@ -18,6 +18,45 @@
         * { box-sizing: border-box; }
         html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", Arial, sans-serif; }
         .page { display: grid; grid-template-rows: auto 1fr; height: 100%; width: 100%; }
+        .top-nav {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--line);
+            background: linear-gradient(180deg, rgba(21, 29, 47, 0.96), rgba(12, 17, 30, 0.92));
+        }
+        .top-nav .brand {
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            color: #f2f6ff;
+            font-size: 14px;
+        }
+        .top-nav .links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .top-nav .links a {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 34px;
+            padding: 0 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,.1);
+            background: rgba(255,255,255,.04);
+            color: var(--text);
+            font-size: 12px;
+            font-weight: 700;
+            text-decoration: none;
+        }
+        .top-nav .links a.active {
+            background: linear-gradient(135deg, var(--danger), #b31717);
+            border-color: transparent;
+            color: #fff;
+        }
         .toolbar {
             display: flex;
             gap: 10px;
@@ -87,6 +126,9 @@
             border-bottom-color: rgba(10, 15, 27, 0.96) !important;
         }
         @media (max-width: 760px) {
+            .top-nav { flex-direction: column; align-items: stretch; padding: 10px; }
+            .top-nav .brand { text-align: center; }
+            .top-nav .links { justify-content: center; }
             .toolbar { padding: 10px; }
             .title { width: 100%; margin-bottom: 4px; }
             .meta { width: 100%; margin-inline-start: 0; }
@@ -95,6 +137,15 @@
 </head>
 <body>
     <div class="page">
+        <nav class="top-nav">
+            <div class="brand">RedAlert Control</div>
+            <div class="links">
+                <a href="/">Dashboard</a>
+                <a href="/map-lab/" class="active">Map Lab</a>
+                <a href="/api/alerts/feed?limit=50&refresh=0" target="_blank" rel="noopener">Live API</a>
+                <a href="/admin/" target="_blank" rel="noopener">Admin</a>
+            </div>
+        </nav>
         <div class="toolbar">
             <div class="title">Map Lab 3D - Active Siren Focus</div>
             <input id="start" type="date" value="2026-02-27">
