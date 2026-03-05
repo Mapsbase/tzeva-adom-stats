@@ -1,4 +1,5 @@
 import logging
+import threading
 from collections import Counter
 from datetime import timedelta
 from datetime import timezone as dt_timezone
@@ -7,6 +8,7 @@ from django.conf import settings
 from django.db import DatabaseError
 from django.db.models import Count
 from django.shortcuts import render
+from django.core.management import call_command
 from django.utils.decorators import method_decorator
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -31,6 +33,8 @@ from .services import ingest_alerts
 ACTIONABLE_CATEGORIES = ["rocket_missile", "hostile_aircraft"]
 logger = logging.getLogger(__name__)
 ARCHIVE_DEFAULT_START = timezone.datetime(2022, 1, 1, tzinfo=dt_timezone.utc)
+_schema_bootstrap_lock = threading.Lock()
+_schema_bootstrap_attempted = False
 
 
 def parse_iso_datetime(value):
@@ -38,6 +42,23 @@ def parse_iso_datetime(value):
     if timezone.is_naive(parsed):
         parsed = parsed.replace(tzinfo=dt_timezone.utc)
     return parsed
+
+
+def _maybe_bootstrap_schema(exc: Exception) -> bool:
+    global _schema_bootstrap_attempted
+    message = str(exc).lower()
+    if "no such table: alerts_alert" not in message and "relation \"alerts_alert\" does not exist" not in message:
+        return False
+    with _schema_bootstrap_lock:
+        if _schema_bootstrap_attempted:
+            return False
+        _schema_bootstrap_attempted = True
+        try:
+            call_command("migrate", interactive=False, run_syncdb=True, verbosity=0)
+            return True
+        except Exception:  # noqa: BLE001
+            logger.exception("Automatic schema bootstrap failed")
+            return False
 
 
 @ensure_csrf_cookie
@@ -253,6 +274,31 @@ class LiveFeedView(APIView):
             )
         except DatabaseError as exc:
             logger.exception("Live feed DB error")
+            if _maybe_bootstrap_schema(exc):
+                try:
+                    queryset = Alert.objects.order_by("-occurred_at", "-id")
+                    cutoff = timezone.now() - timedelta(minutes=max(1, min(int(request.GET.get("minutes", 180)), 1440)))
+                    queryset = queryset.filter(occurred_at__gte=cutoff)
+                    alerts = list(queryset[: min(int(request.GET.get("limit", 50)), 200)])
+                    return Response(
+                        {
+                            "refreshed": False,
+                            "new_count": 0,
+                            "newest_id": Alert.objects.order_by("-id").values_list("id", flat=True).first(),
+                            "server_time": timezone.now().isoformat(),
+                            "refresh_error": "database initialized automatically",
+                            "source_status": "ok",
+                            "source_url": None,
+                            "source_event_count": 0,
+                            "source_details": [],
+                            "include_history": request.GET.get("include_history", "0") == "1",
+                            "minutes": max(1, min(int(request.GET.get("minutes", 180)), 1440)),
+                            "alerts": AlertSerializer(alerts, many=True).data,
+                        },
+                        status=200,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("Live feed query failed after schema bootstrap")
             return Response(
                 {
                     "refreshed": False,
@@ -421,6 +467,36 @@ class RangeOverviewView(APIView):
             )
         except DatabaseError as exc:
             logger.exception("Range overview DB error")
+            if _maybe_bootstrap_schema(exc):
+                try:
+                    db_start = Alert.objects.order_by("occurred_at").values_list("occurred_at", flat=True).first()
+                    db_end = Alert.objects.order_by("-occurred_at").values_list("occurred_at", flat=True).first()
+                    start = parse_iso_datetime(request.GET["start"]) if request.GET.get("start") else (db_start or ARCHIVE_DEFAULT_START)
+                    requested_end = parse_iso_datetime(request.GET["end"]) if request.GET.get("end") else (db_end or timezone.now())
+                    if not db_end:
+                        return Response(
+                            {
+                                "start": start.isoformat(),
+                                "requested_end": requested_end.isoformat(),
+                                "effective_end": None,
+                                "db_start": db_start.isoformat() if db_start else None,
+                                "db_end": None,
+                                "total_city_rows": 0,
+                                "total_event_count": 0,
+                                "top_cities": [],
+                                "top_districts": [],
+                                "by_hour": [{"hour": hour, "count": 0} for hour in range(24)],
+                                "by_minute": [{"minute": minute, "count": 0} for minute in range(60)],
+                                "by_day": [],
+                                "by_category": [],
+                                "by_source": [],
+                                "map_points": [],
+                                "error": "database initialized automatically",
+                            },
+                            status=200,
+                        )
+                except Exception:  # noqa: BLE001
+                    logger.exception("Range overview failed after schema bootstrap")
             start = parse_iso_datetime(request.GET["start"]) if request.GET.get("start") else ARCHIVE_DEFAULT_START
             requested_end = parse_iso_datetime(request.GET["end"]) if request.GET.get("end") else timezone.now()
             return Response(
