@@ -9,7 +9,7 @@ load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv("SECRET_KEY", "change-me")
 DEBUG = os.getenv("DEBUG", "0") == "1"
-ALLOWED_HOSTS = [host.strip() for host in os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",") if host.strip()]
+ALLOWED_HOSTS = ["*"]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
