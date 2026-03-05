@@ -94,3 +94,15 @@ The page:
 - polls live feed every 2 seconds
 - prepends newly seen alerts from the Oref polling source
 - has buttons to pull realtime and history immediately
+
+## Deploy on Render
+
+- This repo now includes [`render.yaml`](./render.yaml) with build/start commands.
+- Required Render environment variables:
+  - `SECRET_KEY`
+  - `DATABASE_URL` (Render Postgres)
+  - `ALLOWED_HOSTS` (for example: `.onrender.com`)
+  - `CSRF_TRUSTED_ORIGINS` (for example: `https://your-service.onrender.com`)
+  - live source envs as needed (`OREF_REALTIME_URLS`, `LIVE_BACKUP_NOTIFICATIONS_URL`, etc.)
+
+Important: `/map-lab/` now polls `/api/alerts/feed` with `refresh=0` to avoid triggering upstream fetch/write on every client poll. Run a worker/cron (`fetch_realtime` or `run_live_poller`) for continuous ingestion.

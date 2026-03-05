@@ -508,7 +508,7 @@
 
         async function pollLiveActiveAlerts() {
             try {
-                const response = await fetch(`/api/alerts/feed?limit=3000&refresh=1&minutes=${ACTIVE_WINDOW_MINUTES}`);
+                const response = await fetch(`/api/alerts/feed?limit=3000&refresh=0&minutes=${ACTIVE_WINDOW_MINUTES}`);
                 if (!response.ok) return;
                 const data = await response.json();
                 const alerts = data.alerts || [];
