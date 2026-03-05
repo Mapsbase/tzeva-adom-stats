@@ -171,7 +171,7 @@
     <script>
         const ISRAEL_BOUNDS = [[34.15, 29.25], [35.95, 33.55]];
         const ACTIVE_WINDOW_MINUTES = 12;
-        const LIVE_POLL_MS = 3000;
+        const LIVE_POLL_MS = 6000;
 
         const map = new maplibregl.Map({
             container: "map",
@@ -276,6 +276,28 @@
             points.forEach((point) => {
                 if (point && point.city) cityCoordinateIndex.set(point.city, point);
             });
+        }
+
+        async function loadCityMetadataIndex() {
+            if (cityCoordinateIndex.size) return;
+            try {
+                const response = await fetch("/api/meta/cities");
+                if (!response.ok) return;
+                const data = await response.json();
+                const rows = data.cities || [];
+                rows.forEach((row) => {
+                    cityCoordinateIndex.set(row.city, {
+                        city: row.city,
+                        city_label: row.city,
+                        lat: row.lat,
+                        lng: row.lng,
+                        district: row.district || "",
+                        count: 0,
+                    });
+                });
+            } catch (error) {
+                // ignore
+            }
         }
 
         function buildDistrictFeatures(points) {
@@ -496,16 +518,22 @@
             const data = await response.json();
             normalPointsCache = data.map_points || [];
             indexPoints(normalPointsCache);
+            if (!normalPointsCache.length) {
+                await loadCityMetadataIndex();
+            }
             setLiveState(false);
             render(normalPointsCache);
         }
 
         async function pollLiveActiveAlerts() {
             try {
-                const response = await fetch(`/api/alerts/feed?limit=3000&refresh=0&minutes=${ACTIVE_WINDOW_MINUTES}`);
+                const response = await fetch(`/api/alerts/feed?limit=3000&refresh=1&minutes=${ACTIVE_WINDOW_MINUTES}`);
                 if (!response.ok) return;
                 const data = await response.json();
                 const alerts = data.alerts || [];
+                if (!cityCoordinateIndex.size) {
+                    await loadCityMetadataIndex();
+                }
                 const activePoints = buildActivePointsFromAlerts(alerts);
 
                 if (activePoints.length) {

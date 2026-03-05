@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 ARCHIVE_DEFAULT_START = timezone.datetime(2022, 1, 1, tzinfo=dt_timezone.utc)
 _schema_bootstrap_lock = threading.Lock()
 _schema_bootstrap_attempted = False
+_data_bootstrap_lock = threading.Lock()
+_data_bootstrap_attempted = False
 
 
 def parse_iso_datetime(value):
@@ -58,6 +60,22 @@ def _maybe_bootstrap_schema(exc: Exception) -> bool:
             return True
         except Exception:  # noqa: BLE001
             logger.exception("Automatic schema bootstrap failed")
+            return False
+
+
+def _maybe_bootstrap_data() -> bool:
+    global _data_bootstrap_attempted
+    with _data_bootstrap_lock:
+        if _data_bootstrap_attempted:
+            return False
+        _data_bootstrap_attempted = True
+        try:
+            if not Alert.objects.exists():
+                call_command("bootstrap_data", verbosity=0)
+                return True
+            return False
+        except Exception:  # noqa: BLE001
+            logger.exception("Automatic data bootstrap failed")
             return False
 
 
@@ -245,6 +263,9 @@ class LiveFeedView(APIView):
                 source_details = []
 
             queryset = Alert.objects.order_by("-occurred_at", "-id")
+            if not queryset.exists():
+                _maybe_bootstrap_data()
+                queryset = Alert.objects.order_by("-occurred_at", "-id")
             if not include_history:
                 queryset = queryset.filter(source__in=["oref_realtime", "live_consensus"])
             cutoff = timezone.now() - timedelta(minutes=minutes)
@@ -421,6 +442,10 @@ class RangeOverviewView(APIView):
             db_start = Alert.objects.order_by("occurred_at").values_list("occurred_at", flat=True).first()
             db_end = Alert.objects.order_by("-occurred_at").values_list("occurred_at", flat=True).first()
 
+            if not db_end and _maybe_bootstrap_data():
+                db_start = Alert.objects.order_by("occurred_at").values_list("occurred_at", flat=True).first()
+                db_end = Alert.objects.order_by("-occurred_at").values_list("occurred_at", flat=True).first()
+
             if start_text:
                 start = parse_iso_datetime(start_text)
             else:
@@ -520,3 +545,28 @@ class RangeOverviewView(APIView):
                 },
                 status=200,
             )
+
+
+class CityMetadataView(APIView):
+    def get(self, request):
+        metadata = history_city_metadata() or {}
+        areas = metadata.get("areas") or {}
+        cities = metadata.get("cities") or {}
+        rows = []
+        for name, info in cities.items():
+            lat = info.get("lat")
+            lng = info.get("lng")
+            if lat is None or lng is None:
+                continue
+            area_id = str(info.get("area") or "")
+            area = areas.get(area_id, {})
+            district = area.get("he") or area.get("en") or ""
+            rows.append(
+                {
+                    "city": name,
+                    "lat": lat,
+                    "lng": lng,
+                    "district": district,
+                }
+            )
+        return Response({"count": len(rows), "cities": rows})
