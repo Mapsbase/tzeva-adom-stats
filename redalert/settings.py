@@ -92,12 +92,16 @@ REST_FRAMEWORK = {
 }
 
 SOURCE_TIMEZONE = os.getenv("SOURCE_TIMEZONE", "Asia/Jerusalem")
-REALTIME_SOURCE_URL = os.getenv("REALTIME_SOURCE_URL", "").strip()
-OREF_REALTIME_URLS = [
-    url.strip()
-    for url in os.getenv("OREF_REALTIME_URLS", REALTIME_SOURCE_URL).split(",")
-    if url.strip()
-]
+REALTIME_SOURCE_URL = os.getenv(
+    "REALTIME_SOURCE_URL",
+    "https://www.oref.org.il/warningMessages/alert/Alerts.json",
+).strip()
+_oref_urls_raw = os.getenv(
+    "OREF_REALTIME_URLS",
+    "https://www.oref.org.il/warningMessages/alert/Alerts.json,"
+    "https://www.oref.org.il/WarningMessages/alert/alerts.json",
+)
+OREF_REALTIME_URLS = [url.strip() for url in _oref_urls_raw.split(",") if url.strip()]
 LIVE_BACKUP_NOTIFICATIONS_URL = os.getenv("LIVE_BACKUP_NOTIFICATIONS_URL", "https://api.tzevaadom.co.il/notifications").strip()
 LIVE_BACKUP_HISTORY_URL = os.getenv("LIVE_BACKUP_HISTORY_URL", "https://api.tzevaadom.co.il/alerts-history/").strip()
 LIVE_EXTRA_URLS = [
@@ -110,6 +114,6 @@ REALTIME_USER_AGENT = os.getenv("REALTIME_USER_AGENT", "redalert/1.0").strip()
 REALTIME_TIMEOUT_SECONDS = int(os.getenv("REALTIME_TIMEOUT_SECONDS", "20"))
 REALTIME_MAX_RETRIES = int(os.getenv("REALTIME_MAX_RETRIES", "3"))
 LIVE_MAX_EVENT_AGE_MINUTES = int(os.getenv("LIVE_MAX_EVENT_AGE_MINUTES", "180"))
-HISTORY_SOURCE_URL = os.getenv("HISTORY_SOURCE_URL", "").strip()
-HISTORY_CITIES_URL = os.getenv("HISTORY_CITIES_URL", "").strip()
+HISTORY_SOURCE_URL = os.getenv("HISTORY_SOURCE_URL", "https://www.tzevaadom.co.il/static/historical/all.json").strip()
+HISTORY_CITIES_URL = os.getenv("HISTORY_CITIES_URL", "https://www.tzevaadom.co.il/static/cities.json?v=10").strip()
 LIVE_POLL_SECONDS = int(os.getenv("LIVE_POLL_SECONDS", "2"))
