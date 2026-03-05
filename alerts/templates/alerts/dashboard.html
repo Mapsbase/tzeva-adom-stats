@@ -1,0 +1,1663 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>RedAlert Live Board</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Fraunces:opsz,wght@9..144,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <style>
+        :root {
+            --bg: #0a0d14;
+            --panel: rgba(18, 24, 38, 0.88);
+            --text: #f8fafc;
+            --muted: #8e9ab0;
+            --muted-strong: #b2bdd1;
+            --line: rgba(255, 255, 255, 0.08);
+            --danger: #ff4136;
+            --danger-soft: #ff7d75;
+            --amber: #ffb648;
+            --blue: #5bc0ff;
+            --green: #22c55e;
+            --shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+            --radius: 24px;
+            --layout-gap: clamp(10px, 1vw, 16px);
+            --panel-padding: clamp(14px, 1.15vw, 20px);
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html {
+            min-height: 100%;
+            -webkit-text-size-adjust: 100%;
+            text-size-adjust: 100%;
+        }
+
+        body {
+            margin: 0;
+            color: var(--text);
+            font-family: "Space Grotesk", system-ui, sans-serif;
+            min-height: 100%;
+            overscroll-behavior-y: none;
+            background:
+                radial-gradient(circle at top left, rgba(255, 65, 54, 0.2), transparent 28%),
+                radial-gradient(circle at 90% 10%, rgba(91, 192, 255, 0.14), transparent 24%),
+                linear-gradient(180deg, #090c13 0%, #0e1320 54%, #0a0d14 100%);
+        }
+
+        .shell {
+            width: 100%;
+            max-width: 100%;
+            margin: 0 auto;
+            padding:
+                calc(10px + env(safe-area-inset-top, 0px))
+                clamp(10px, 1.45vw, 26px)
+                calc(18px + env(safe-area-inset-bottom, 0px));
+        }
+
+        .panel {
+            position: relative;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: linear-gradient(180deg, rgba(24, 30, 45, 0.92), rgba(14, 18, 29, 0.94));
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(2px);
+        }
+
+        .panel::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background:
+                linear-gradient(135deg, rgba(255, 255, 255, 0.04), transparent 30%),
+                linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.02));
+            pointer-events: none;
+        }
+
+        .hero, .stats-grid, .command-grid, .charts-grid, .tables-grid {
+            display: grid;
+            gap: var(--layout-gap);
+            margin-bottom: var(--layout-gap);
+        }
+
+        /* Top hero area removed from frontend view per request */
+        .hero {
+            display: none !important;
+        }
+
+        .hero { grid-template-columns: 1.2fr 0.8fr; }
+        .stats-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+        .command-grid { grid-template-columns: 1.7fr 0.5fr; }
+        .charts-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .tables-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+        .hero-main, .hero-side, .map-stage, .feed-stage { position: relative; z-index: 1; }
+        .hero-main { padding: clamp(18px, 1.7vw, 28px); }
+        .hero-side, .metric-card, .chart-card, .table-card, .map-card, .feed-card { padding: var(--panel-padding); }
+
+        .eyebrow, .metric-label, .section-kicker {
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.14em;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        h1, h2, h3 { margin: 0; }
+
+        h1 {
+            font-family: "Fraunces", serif;
+            font-size: clamp(34px, 5vw, 60px);
+            line-height: 0.98;
+            letter-spacing: -0.04em;
+            max-width: 10ch;
+        }
+
+        h2 {
+            font-family: "Fraunces", serif;
+            font-size: clamp(24px, 3vw, 34px);
+            letter-spacing: -0.03em;
+        }
+
+        h3 { font-size: 18px; font-weight: 700; }
+
+        .hero-copy {
+            max-width: 74ch;
+            margin-top: 12px;
+            color: var(--muted-strong);
+            line-height: 1.6;
+        }
+
+        .toolbar, .toolbar-group, .chip-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .toolbar { margin-top: 22px; }
+
+        .lang-switch {
+            display: inline-flex;
+            gap: 8px;
+            margin-top: 18px;
+        }
+
+        .lang-switch button {
+            min-width: 56px;
+            height: 36px;
+            padding: 0 14px;
+            background: rgba(255,255,255,.04);
+            border: 1px solid rgba(255,255,255,.08);
+            color: var(--muted-strong);
+        }
+
+        .lang-switch button.active {
+            background: linear-gradient(135deg, var(--danger), #a21212);
+            color: white;
+            border-color: transparent;
+        }
+
+        input, button {
+            min-height: 46px;
+            border-radius: 999px;
+            border: 0;
+            font: inherit;
+            touch-action: manipulation;
+        }
+
+        input {
+            min-width: 160px;
+            padding: 0 16px;
+            font-size: 16px;
+            background: rgba(9, 13, 20, 0.95);
+            color: var(--text);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        button {
+            padding: 0 18px;
+            cursor: pointer;
+            font-weight: 700;
+            transition: transform 0.16s ease;
+        }
+
+        button:hover { transform: translateY(-1px); }
+        button:focus-visible,
+        input:focus-visible {
+            outline: 2px solid rgba(255, 182, 72, 0.9);
+            outline-offset: 2px;
+        }
+        button.primary { color: white; background: linear-gradient(135deg, var(--danger), #a21212); }
+        button.secondary { color: var(--text); background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); }
+
+        .hero-side { display: grid; gap: 14px; }
+
+        .status-card, .snapshot, .metric-card, .feed-banner {
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .status-card {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 16px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--green);
+            box-shadow: 0 0 18px rgba(34, 197, 94, 0.8);
+            flex: 0 0 auto;
+        }
+
+        .status-value, .snapshot-value, .metric-value {
+            margin-top: 6px;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .status-value { font-size: 22px; }
+        .snapshot-value, .metric-value { font-size: 28px; }
+        .snapshot-value.small, .metric-value.small { font-size: 20px; line-height: 1.2; }
+
+        .snapshot-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .snapshot { padding: 16px; }
+
+        .snapshot-sub, .metric-sub, .card-sub {
+            margin-top: 8px;
+            color: var(--muted);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .metric-card { min-height: 128px; }
+        .command-grid .panel { min-height: 720px; }
+
+        .card-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 14px;
+            margin-bottom: 16px;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-height: 30px;
+            padding: 0 12px;
+            border-radius: 999px;
+            background: rgba(255,255,255,.06);
+            color: var(--muted-strong);
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .map-stage {
+            height: calc(100% - 74px);
+            min-height: 720px;
+            border-radius: 20px;
+            overflow: hidden;
+            border: 1px solid rgba(255,255,255,.08);
+        }
+
+        #map { width: 100%; height: 100%; }
+
+        .feed-stage {
+            display: grid;
+            grid-template-rows: auto auto 1fr;
+            gap: 14px;
+            height: 100%;
+        }
+
+        .feed-banner {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            background: linear-gradient(135deg, rgba(255,65,54,.12), rgba(255,182,72,.1));
+            border-color: rgba(255,65,54,.18);
+        }
+
+        .feed-banner .strong { font-size: 18px; font-weight: 800; }
+        .feed-banner .meta { color: var(--muted); font-size: 13px; }
+
+        .feed-list {
+            display: grid;
+            gap: 10px;
+            max-height: 560px;
+            overflow: auto;
+            padding-right: 4px;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+        }
+
+        .feed-item {
+            border-radius: 18px;
+            padding: 14px 15px;
+            background: linear-gradient(180deg, rgba(255,65,54,.12), rgba(255,255,255,.02));
+            border: 1px solid rgba(255,65,54,.16);
+        }
+
+        .feed-top {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            align-items: center;
+        }
+
+        .feed-city { font-size: 18px; font-weight: 800; }
+        .feed-time { color: var(--danger-soft); font-size: 13px; font-weight: 700; white-space: nowrap; }
+        .feed-meta { margin-top: 8px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+        .feed-empty { padding: 18px; border-radius: 18px; border: 1px dashed rgba(255,255,255,.12); color: var(--muted); text-align: center; }
+
+        .threat-popups {
+            position: fixed;
+            top: 18px;
+            left: 18px;
+            z-index: 2000;
+            display: grid;
+            gap: 12px;
+            width: min(420px, calc(100vw - 36px));
+            pointer-events: none;
+        }
+
+        .threat-popup {
+            pointer-events: auto;
+            border-radius: 22px;
+            border: 1px solid rgba(255, 65, 54, 0.34);
+            background:
+                radial-gradient(circle at top right, rgba(255, 182, 72, 0.18), transparent 30%),
+                linear-gradient(180deg, rgba(60, 13, 13, 0.96), rgba(22, 8, 10, 0.98));
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+            padding: 16px;
+        }
+
+        .threat-popup-head {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        .threat-popup-kicker {
+            color: #ffd4d1;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 0.14em;
+            font-weight: 700;
+        }
+
+        .threat-popup-title {
+            margin-top: 4px;
+            font-size: 22px;
+            font-weight: 800;
+            line-height: 1.1;
+        }
+
+        .threat-popup-timer {
+            flex: 0 0 auto;
+            min-width: 92px;
+            text-align: center;
+            padding: 10px 12px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .threat-popup-timer .value {
+            font-size: 22px;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .threat-popup-timer .label {
+            margin-top: 4px;
+            color: #ffd4d1;
+            font-size: 11px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        .threat-popup-meta {
+            margin-top: 12px;
+            color: #ffdbd8;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .threat-popup-cities {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .threat-popup-cities span {
+            padding: 7px 11px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            color: white;
+            font-size: 12px;
+            font-weight: 700;
+        }
+
+        .chart-card { min-height: 360px; }
+        .chart-shell { position: relative; height: 300px; margin-top: 14px; }
+        .chart-shell.tall { height: 340px; }
+        canvas { width: 100% !important; height: 100% !important; }
+
+        .table-card { min-height: 520px; }
+        .table-wrap {
+            max-height: 440px;
+            overflow: auto;
+            margin-top: 12px;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.06); text-align: left; }
+        th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+        td { font-size: 14px; }
+        td.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .feed-list::-webkit-scrollbar,
+        .table-wrap::-webkit-scrollbar { width: 10px; height: 10px; }
+        .feed-list::-webkit-scrollbar-thumb,
+        .table-wrap::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+        }
+        .feed-list::-webkit-scrollbar-track,
+        .table-wrap::-webkit-scrollbar-track { background: transparent; }
+
+        @media (min-width: 1800px) {
+            .shell { padding-inline: clamp(18px, 2vw, 40px); }
+            .hero { grid-template-columns: 1.25fr 0.75fr; }
+            .command-grid { grid-template-columns: 1.8fr 0.5fr; }
+            .map-stage { min-height: 820px; }
+            .feed-list { max-height: 620px; }
+            .table-wrap { max-height: 500px; }
+        }
+
+        @media (max-width: 1440px) {
+            .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+            .charts-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .command-grid { grid-template-columns: 1.55fr 0.6fr; }
+            .map-stage { min-height: 620px; }
+            .feed-list { max-height: 460px; }
+        }
+
+        @media (max-width: 1100px) {
+            .hero, .command-grid, .charts-grid, .tables-grid { grid-template-columns: 1fr; }
+            .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .command-grid .panel { min-height: auto; }
+            .map-stage { min-height: 420px; height: 420px; }
+            .feed-list { max-height: 380px; }
+        }
+
+        @media (max-width: 720px) {
+            .shell { width: min(100% - 16px, 1640px); }
+            .hero-main, .hero-side, .metric-card, .chart-card, .table-card, .map-card, .feed-card { padding: 16px; }
+            .stats-grid, .snapshot-grid { grid-template-columns: 1fr; }
+            .toolbar-group { width: 100%; }
+            input, button { width: 100%; }
+            .lang-switch { width: 100%; }
+            .lang-switch button { flex: 1 1 0; min-width: 0; }
+            .card-head { flex-direction: column; align-items: stretch; gap: 10px; }
+            .map-stage { min-height: 340px; height: 340px; }
+            .feed-list { max-height: 360px; }
+            .chart-shell { height: 230px; }
+            .chart-shell.tall { height: 260px; }
+            .feed-banner { flex-direction: column; align-items: flex-start; }
+            .threat-popups {
+                top: calc(10px + env(safe-area-inset-top, 0px));
+                left: 8px;
+                right: 8px;
+                width: auto;
+            }
+        }
+
+        @media (max-width: 520px) {
+            h1 { font-size: clamp(28px, 10vw, 38px); max-width: 100%; }
+            h2 { font-size: clamp(22px, 7vw, 28px); }
+            .hero-copy { font-size: 14px; line-height: 1.55; }
+            .status-value, .snapshot-value, .metric-value { font-size: 24px; }
+            .snapshot-value.small, .metric-value.small { font-size: 18px; }
+            .map-stage { min-height: 300px; height: 300px; }
+            .feed-city { font-size: 16px; }
+            .feed-top { align-items: flex-start; flex-direction: column; gap: 6px; }
+            th, td { padding: 10px 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="threat-popups" id="threat-popups"></div>
+    <div class="shell">
+        <section class="hero">
+            <div class="panel hero-main">
+                <div class="eyebrow" id="hero-eyebrow">Realtime Civil Alert Monitor</div>
+                <h1 id="hero-title">Live alert board with history, map density, and event analytics.</h1>
+                <div class="hero-copy" id="hero-copy">
+                    This board keeps the live feed visible while rebuilding multi-city rows back into single alert events for cleaner statistics. Use the date range to inspect historical pressure, compare districts, and see how alert intensity moves across time.
+                </div>
+                <div class="lang-switch">
+                    <button id="lang-he" type="button">HE</button>
+                    <button id="lang-en" type="button">EN</button>
+                    <button id="lang-ru" type="button">RU</button>
+                </div>
+                <div class="toolbar">
+                    <div class="toolbar-group">
+                        <input id="range-start" type="date" value="2026-02-27">
+                        <input id="range-end" type="date" value="2026-03-31">
+                    </div>
+                    <div class="toolbar-group">
+                        <button id="apply-range" class="primary" type="button">Apply Range</button>
+                        <button id="pull-realtime" class="primary" type="button">Pull Live Now</button>
+                        <button id="pull-history" class="secondary" type="button">Refresh History</button>
+                    </div>
+                </div>
+            </div>
+            <div class="panel hero-side">
+                <div class="status-card">
+                    <span class="status-dot" id="health-dot"></span>
+                    <div>
+                        <div class="metric-label" id="sync-state-label">Live Sync State</div>
+                        <div class="status-value" id="refresh-error">Healthy</div>
+                        <div class="card-sub" id="sync-state-sub">Feed polling every {{ live_poll_seconds }} seconds.</div>
+                        <div class="card-sub"><span id="source-status-label">Source status:</span> <strong id="source-status-value">-</strong></div>
+                        <div class="card-sub"><span id="source-url-label">Source URL:</span> <strong id="source-url-value">-</strong></div>
+                    </div>
+                </div>
+                <div class="snapshot-grid">
+                    <div class="snapshot">
+                        <div class="metric-label" id="last-poll-label">Last Poll</div>
+                        <div class="snapshot-value" id="last-poll">-</div>
+                        <div class="snapshot-sub" id="last-poll-sub">Most recent successful feed refresh.</div>
+                    </div>
+                    <div class="snapshot">
+                        <div class="metric-label" id="newest-row-label">Newest Row ID</div>
+                        <div class="snapshot-value" id="newest-id">-</div>
+                        <div class="snapshot-sub" id="newest-row-sub">Latest row visible in local storage.</div>
+                    </div>
+                    <div class="snapshot">
+                        <div class="metric-label" id="requested-end-label">Requested End</div>
+                        <div class="snapshot-value small" id="requested-end">-</div>
+                        <div class="snapshot-sub" id="requested-end-sub">The range end you asked the board to inspect.</div>
+                    </div>
+                    <div class="snapshot">
+                        <div class="metric-label" id="effective-end-label">Effective End</div>
+                        <div class="snapshot-value small" id="effective-end">-</div>
+                        <div class="snapshot-sub" id="effective-end-sub">Clipped to the newest alert currently in the DB.</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="stats-grid">
+            <div class="panel metric-card">
+                <div class="metric-label" id="event-alerts-label">Event Alerts</div>
+                <div class="metric-value" id="event-count">-</div>
+                <div class="metric-sub" id="event-alerts-sub">Unique alert events after grouping multi-city rows.</div>
+            </div>
+            <div class="panel metric-card">
+                <div class="metric-label" id="city-hit-label">City-Hit Rows</div>
+                <div class="metric-value" id="city-row-count">-</div>
+                <div class="metric-sub" id="city-hit-sub">Raw city rows stored in the selected time window.</div>
+            </div>
+            <div class="panel metric-card">
+                <div class="metric-label" id="peak-city-label">Peak City</div>
+                <div class="metric-value small" id="peak-city">-</div>
+                <div class="metric-sub" id="peak-city-sub">-</div>
+            </div>
+            <div class="panel metric-card">
+                <div class="metric-label" id="peak-district-label">Peak District</div>
+                <div class="metric-value small" id="peak-district">-</div>
+                <div class="metric-sub" id="peak-district-sub">-</div>
+            </div>
+            <div class="panel metric-card">
+                <div class="metric-label" id="peak-hour-label">Peak Hour</div>
+                <div class="metric-value" id="peak-hour">-</div>
+                <div class="metric-sub" id="peak-hour-sub">-</div>
+            </div>
+            <div class="panel metric-card">
+                <div class="metric-label" id="tracked-map-label">Tracked Map Points</div>
+                <div class="metric-value" id="map-count">-</div>
+                <div class="metric-sub" id="tracked-map-sub">Cities with coordinates visible on the map.</div>
+            </div>
+        </section>
+
+        <section class="command-grid">
+            <div class="panel map-card">
+                <div class="card-head">
+                    <div>
+                        <div class="section-kicker" id="map-density-kicker">Map Density</div>
+                        <h2 id="interactive-map-title">Interactive alert map</h2>
+                        <div class="card-sub" id="top-range">-</div>
+                    </div>
+                    <div class="chip-row">
+                        <span class="pill" id="map-chip-tiles">Google-style road tiles</span>
+                        <span class="pill" id="map-chip-size">Marker size = event count</span>
+                    </div>
+                </div>
+                <div class="map-stage">
+                    <div id="map"></div>
+                </div>
+            </div>
+            <div class="panel feed-card">
+                <div class="feed-stage">
+                    <div class="card-head" style="margin-bottom: 0;">
+                        <div>
+                            <div class="section-kicker" id="live-pool-kicker">Live Pool</div>
+                            <h2 id="live-pool-title">Newest alert rows</h2>
+                            <div class="card-sub" id="live-pool-sub">Fresh rows from the live sources with in-place updates.</div>
+                        </div>
+                    </div>
+                    <div class="feed-banner">
+                        <div>
+                            <div class="strong" id="feed-banner-title">Waiting for live rows</div>
+                            <div class="meta" id="feed-banner-meta">The panel updates as soon as new rows arrive.</div>
+                        </div>
+                        <span class="pill" id="feed-banner-count">0 rows</span>
+                    </div>
+                    <div class="feed-list" id="feed-list"></div>
+                </div>
+            </div>
+        </section>
+
+        <section class="charts-grid">
+            <div class="panel chart-card">
+                <div class="card-head">
+                    <div>
+                        <div class="section-kicker" id="timeline-kicker">Timeline</div>
+                        <h3 id="alerts-by-day-title">Alerts by day</h3>
+                    </div>
+                    <span class="pill" id="event-count-pill">Event count</span>
+                </div>
+                <div class="chart-shell">
+                    <canvas id="by-day-chart"></canvas>
+                </div>
+            </div>
+            <div class="panel chart-card">
+                <div class="card-head">
+                    <div>
+                        <div class="section-kicker" id="rhythm-kicker">Rhythm</div>
+                        <h3 id="alerts-by-hour-title">Alerts by hour</h3>
+                    </div>
+                    <span class="pill" id="hour-cycle-pill">24-hour cycle</span>
+                </div>
+                <div class="chart-shell">
+                    <canvas id="by-hour-chart"></canvas>
+                </div>
+            </div>
+            <div class="panel chart-card">
+                <div class="card-head">
+                    <div>
+                        <div class="section-kicker" id="pressure-kicker">Pressure</div>
+                        <h3 id="alerts-by-minute-title">Alerts by minute</h3>
+                    </div>
+                    <span class="pill" id="burst-shape-pill">Burst shape</span>
+                </div>
+                <div class="chart-shell">
+                    <canvas id="by-minute-chart"></canvas>
+                </div>
+            </div>
+            <div class="panel chart-card">
+                <div class="card-head">
+                    <div>
+                        <div class="section-kicker" id="ranking-kicker">Ranking</div>
+                        <h3 id="top-cities-chart-title">Top cities</h3>
+                    </div>
+                    <span class="pill" id="event-based-pill">Event-based</span>
+                </div>
+                <div class="chart-shell tall">
+                    <canvas id="cities-bar-chart"></canvas>
+                </div>
+            </div>
+            <div class="panel chart-card">
+                <div class="card-head">
+                    <div>
+                        <div class="section-kicker" id="coverage-kicker">Coverage</div>
+                        <h3 id="top-districts-chart-title">Top districts share</h3>
+                    </div>
+                    <span class="pill" id="area-split-pill">Area split</span>
+                </div>
+                <div class="chart-shell tall">
+                    <canvas id="districts-bar"></canvas>
+                </div>
+            </div>
+            <div class="panel chart-card">
+                <div class="card-head">
+                    <div>
+                        <div class="section-kicker" id="composition-kicker">Composition</div>
+                        <h3 id="categories-sources-title">Categories and sources</h3>
+                    </div>
+                    <div class="chip-row">
+                        <span class="pill" id="pie-pill">Pie</span>
+                        <span class="pill" id="provider-mix-pill">Provider mix</span>
+                    </div>
+                </div>
+                <div style="display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 10px;">
+                    <div class="chart-shell" style="height: 250px;">
+                        <canvas id="category-pie"></canvas>
+                    </div>
+                    <div class="chart-shell" style="height: 250px;">
+                        <canvas id="source-pie"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="tables-grid">
+            <div class="panel table-card">
+                <div class="card-head">
+                    <div>
+                        <div class="section-kicker" id="full-ranking-kicker">Full Ranking</div>
+                        <h3 id="top-cities-table-title">Top cities by event count</h3>
+                        <div class="card-sub" id="top-cities-table-sub">Full list in the selected time window, not just a sample.</div>
+                    </div>
+                    <span class="pill" id="cities-table-meta">-</span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th id="rank-th">Rank</th>
+                                <th id="city-th">City</th>
+                                <th class="num" id="events-th">Events</th>
+                            </tr>
+                        </thead>
+                        <tbody id="top-cities-body"></tbody>
+                    </table>
+                </div>
+            </div>
+            <div class="panel table-card">
+                <div class="card-head">
+                    <div>
+                        <div class="section-kicker" id="area-ranking-kicker">Area Ranking</div>
+                        <h3 id="top-districts-table-title">Top districts by event count</h3>
+                        <div class="card-sub" id="top-districts-table-sub">Where grouped alert events are concentrating most heavily.</div>
+                    </div>
+                    <span class="pill" id="districts-table-meta">-</span>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th id="rank-th-2">Rank</th>
+                                <th id="district-th">District</th>
+                                <th class="num" id="events-th-2">Events</th>
+                            </tr>
+                        </thead>
+                        <tbody id="top-districts-body"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        const pollMs = {{ live_poll_seconds }} * 1000;
+        let newestId = 0;
+        let currentStart = "2026-02-27";
+        let currentEnd = "2026-03-31";
+        let map;
+        let mapMarkers = [];
+        let mapResizeTimer = null;
+        let currentLang = localStorage.getItem("board_lang") || "he";
+        let hasBootstrappedFeed = false;
+        let popupTimerInterval = null;
+        const charts = {};
+        const activeThreatPopups = new Map();
+        const palette = ["#ff4136", "#ff7d75", "#ffb648", "#5bc0ff", "#22c55e", "#8b5cf6", "#f97316", "#14b8a6"];
+        const ui = {
+            he: {
+                title: "לוח התרעות חי עם היסטוריה, מפת צפיפות וניתוח אירועים",
+                heroEyebrow: "ניטור התרעות אזרחי בזמן אמת",
+                heroCopy: "הלוח שומר על הפיד החי גלוי, ובמקביל מאחד שורות של כמה ערים בחזרה לאירועים בודדים כדי להציג סטטיסטיקה נקייה יותר. אפשר לבחור טווח תאריכים, לבדוק לחץ היסטורי, להשוות אזורים ולראות איך עוצמת ההתרעות משתנה בזמן.",
+                applyRange: "החל טווח",
+                pullLive: "משוך לייב",
+                pullHistory: "רענן היסטוריה",
+                syncState: "מצב סנכרון חי",
+                syncSub: `הפיד נבדק כל {{ live_poll_seconds }} שניות.`,
+                lastPoll: "בדיקה אחרונה",
+                lastPollSub: "הרענון האחרון שהצליח בפיד החי.",
+                newestRow: "מזהה שורה חדש ביותר",
+                newestRowSub: "השורה האחרונה שנשמרה במסד הנתונים המקומי.",
+                requestedEnd: "סיום מבוקש",
+                requestedEndSub: "טווח הסיום שביקשת לנתח.",
+                effectiveEnd: "סיום בפועל",
+                effectiveEndSub: "נחתך להתרעה החדשה ביותר שקיימת כעת במסד.",
+                eventAlerts: "אירועי התרעה",
+                eventAlertsSub: "אירועים ייחודיים לאחר איחוד שורות מרובות ערים.",
+                cityHits: "שורות פגיעת ערים",
+                cityHitsSub: "שורות גולמיות של ערים שנשמרו בטווח הנבחר.",
+                peakCity: "עיר מובילה",
+                peakDistrict: "אזור מוביל",
+                peakHour: "שעת שיא",
+                trackedMap: "נקודות ממופות",
+                trackedMapSub: "ערים עם קואורדינטות שניתן להציג על המפה.",
+                mapDensity: "צפיפות מפה",
+                interactiveMap: "מפת התרעות אינטראקטיבית",
+                mapChipTiles: "אריחי כבישים בסגנון Google",
+                mapChipSize: "גודל סמן = כמות אירועים",
+                livePool: "פול חי",
+                newestRows: "שורות ההתרעה החדשות ביותר",
+                newestRowsSub: "שורות טריות ממקורות הלייב עם עדכון במקום.",
+                timeline: "ציר זמן",
+                alertsByDay: "התרעות לפי יום",
+                eventCount: "כמות אירועים",
+                rhythm: "קצב",
+                alertsByHour: "התרעות לפי שעה",
+                hourCycle: "מחזור 24 שעות",
+                pressure: "עומס",
+                alertsByMinute: "התרעות לפי דקה",
+                burstShape: "צורת התפרצות",
+                ranking: "דירוג",
+                topCities: "ערים מובילות",
+                eventBased: "מבוסס אירועים",
+                coverage: "כיסוי",
+                topDistrictsShare: "חלוקת אזורים מובילים",
+                areaSplit: "פיצול אזורי",
+                composition: "הרכב",
+                categoriesSources: "קטגוריות ומקורות",
+                pie: "עוגה",
+                providerMix: "תמהיל מקורות",
+                fullRanking: "דירוג מלא",
+                topCitiesTable: "ערים מובילות לפי כמות אירועים",
+                topCitiesTableSub: "הרשימה המלאה בטווח הנבחר, לא רק מדגם.",
+                areaRanking: "דירוג אזורים",
+                topDistrictsTable: "אזורים מובילים לפי כמות אירועים",
+                topDistrictsTableSub: "איפה האירועים המאוחדים מרוכזים בצורה הכבדה ביותר.",
+                rank: "דירוג",
+                city: "עיר",
+                district: "אזור",
+                events: "אירועים",
+                healthy: "תקין",
+                noLiveRows: "אין כרגע שורות לייב זמינות",
+                noLiveRowsSub: "הלוח עדיין בודק מקורות; כרגע פשוט לא הגיע משהו חדש.",
+                tryPull: "אין עדיין שורות חיות. נסה למשוך לייב או להמתין לעדכון הבא.",
+                newestRowLabel: "השורה החדשה ביותר",
+                rows: "שורות",
+                citiesRanked: "ערים מדורגות",
+                districtsRanked: "אזורים מדורגים",
+                eventsInRange: "אירועים בטווח שנבחר",
+                groupedEvents: "אירועים מאוחדים",
+                busiestHour: "אירועים בשעת השיא",
+                to: "עד",
+                liveThreat: "איום חי",
+                activeForTen: "חלון 12 דקות",
+                startedAt: "התחיל ב",
+                endsIn: "נותרו",
+                sourceStatusLabel: "סטטוס מקור:",
+                sourceUrlLabel: "כתובת מקור:",
+            },
+            en: {
+                title: "Live alert board with history, map density, and event analytics",
+                heroEyebrow: "Realtime Civil Alert Monitor",
+                heroCopy: "This board keeps the live feed visible while rebuilding multi-city rows back into single alert events for cleaner statistics. Use the date range to inspect historical pressure, compare districts, and see how alert intensity moves across time.",
+                applyRange: "Apply Range",
+                pullLive: "Pull Live Now",
+                pullHistory: "Refresh History",
+                syncState: "Live Sync State",
+                syncSub: "Feed polling every {{ live_poll_seconds }} seconds.",
+                lastPoll: "Last Poll",
+                lastPollSub: "Most recent successful feed refresh.",
+                newestRow: "Newest Row ID",
+                newestRowSub: "Latest row visible in local storage.",
+                requestedEnd: "Requested End",
+                requestedEndSub: "The range end you asked the board to inspect.",
+                effectiveEnd: "Effective End",
+                effectiveEndSub: "Clipped to the newest alert currently in the DB.",
+                eventAlerts: "Event Alerts",
+                eventAlertsSub: "Unique alert events after grouping multi-city rows.",
+                cityHits: "City-Hit Rows",
+                cityHitsSub: "Raw city rows stored in the selected time window.",
+                peakCity: "Peak City",
+                peakDistrict: "Peak District",
+                peakHour: "Peak Hour",
+                trackedMap: "Tracked Map Points",
+                trackedMapSub: "Cities with coordinates visible on the map.",
+                mapDensity: "Map Density",
+                interactiveMap: "Interactive alert map",
+                mapChipTiles: "Google-style road tiles",
+                mapChipSize: "Marker size = event count",
+                livePool: "Live Pool",
+                newestRows: "Newest alert rows",
+                newestRowsSub: "Fresh rows from the live sources with in-place updates.",
+                timeline: "Timeline",
+                alertsByDay: "Alerts by day",
+                eventCount: "Event count",
+                rhythm: "Rhythm",
+                alertsByHour: "Alerts by hour",
+                hourCycle: "24-hour cycle",
+                pressure: "Pressure",
+                alertsByMinute: "Alerts by minute",
+                burstShape: "Burst shape",
+                ranking: "Ranking",
+                topCities: "Top cities",
+                eventBased: "Event-based",
+                coverage: "Coverage",
+                topDistrictsShare: "Top districts share",
+                areaSplit: "Area split",
+                composition: "Composition",
+                categoriesSources: "Categories and sources",
+                pie: "Pie",
+                providerMix: "Provider mix",
+                fullRanking: "Full Ranking",
+                topCitiesTable: "Top cities by event count",
+                topCitiesTableSub: "Full list in the selected time window, not just a sample.",
+                areaRanking: "Area Ranking",
+                topDistrictsTable: "Top districts by event count",
+                topDistrictsTableSub: "Where grouped alert events are concentrating most heavily.",
+                rank: "Rank",
+                city: "City",
+                district: "District",
+                events: "Events",
+                healthy: "Healthy",
+                noLiveRows: "No live rows are visible yet",
+                noLiveRowsSub: "The board is polling; this just means nothing newer is currently available.",
+                tryPull: "No live rows are visible yet. Try Pull Live Now or wait for the next source update.",
+                newestRowLabel: "Newest row",
+                rows: "rows",
+                citiesRanked: "cities ranked",
+                districtsRanked: "districts ranked",
+                eventsInRange: "events in selected range",
+                groupedEvents: "grouped events",
+                busiestHour: "events during the busiest hour",
+                to: "to",
+                liveThreat: "Live Threat",
+                activeForTen: "12-minute window",
+                startedAt: "Started at",
+                endsIn: "Ends in",
+                sourceStatusLabel: "Source status:",
+                sourceUrlLabel: "Source URL:",
+            },
+            ru: {
+                title: "Живая панель тревог с историей, картой плотности и аналитикой событий",
+                heroEyebrow: "Мониторинг гражданских тревог в реальном времени",
+                heroCopy: "Панель сохраняет живую ленту на виду и одновременно собирает строки по нескольким городам обратно в отдельные события, чтобы статистика была чище. Выберите диапазон дат, проверьте историческую нагрузку, сравните районы и посмотрите, как меняется интенсивность тревог.",
+                applyRange: "Применить диапазон",
+                pullLive: "Загрузить live",
+                pullHistory: "Обновить историю",
+                syncState: "Состояние live-синхронизации",
+                syncSub: "Лента опрашивается каждые {{ live_poll_seconds }} секунд.",
+                lastPoll: "Последний опрос",
+                lastPollSub: "Последнее успешное обновление живой ленты.",
+                newestRow: "Последний ID строки",
+                newestRowSub: "Последняя строка, видимая в локальной базе.",
+                requestedEnd: "Запрошенный конец",
+                requestedEndSub: "Конец диапазона, который вы попросили проанализировать.",
+                effectiveEnd: "Фактический конец",
+                effectiveEndSub: "Обрезано по самой новой тревоге в базе.",
+                eventAlerts: "События тревог",
+                eventAlertsSub: "Уникальные события после объединения строк нескольких городов.",
+                cityHits: "Строки попаданий по городам",
+                cityHitsSub: "Сырые строки городов в выбранном диапазоне.",
+                peakCity: "Главный город",
+                peakDistrict: "Главный район",
+                peakHour: "Пиковый час",
+                trackedMap: "Точки на карте",
+                trackedMapSub: "Города с координатами, видимые на карте.",
+                mapDensity: "Плотность карты",
+                interactiveMap: "Интерактивная карта тревог",
+                mapChipTiles: "Дорожные тайлы в стиле Google",
+                mapChipSize: "Размер маркера = число событий",
+                livePool: "Живой поток",
+                newestRows: "Самые новые строки тревог",
+                newestRowsSub: "Свежие строки из live-источников с обновлением на месте.",
+                timeline: "Линия времени",
+                alertsByDay: "Тревоги по дням",
+                eventCount: "Количество событий",
+                rhythm: "Ритм",
+                alertsByHour: "Тревоги по часам",
+                hourCycle: "24-часовой цикл",
+                pressure: "Нагрузка",
+                alertsByMinute: "Тревоги по минутам",
+                burstShape: "Форма всплеска",
+                ranking: "Рейтинг",
+                topCities: "Топ городов",
+                eventBased: "По событиям",
+                coverage: "Покрытие",
+                topDistrictsShare: "Доли топ-районов",
+                areaSplit: "Разделение по районам",
+                composition: "Состав",
+                categoriesSources: "Категории и источники",
+                pie: "Круговая",
+                providerMix: "Смесь источников",
+                fullRanking: "Полный рейтинг",
+                topCitiesTable: "Топ городов по числу событий",
+                topCitiesTableSub: "Полный список в выбранном диапазоне, а не только выборка.",
+                areaRanking: "Рейтинг районов",
+                topDistrictsTable: "Топ районов по числу событий",
+                topDistrictsTableSub: "Где сгруппированные события тревог концентрируются сильнее всего.",
+                rank: "Место",
+                city: "Город",
+                district: "Район",
+                events: "События",
+                healthy: "Норма",
+                noLiveRows: "Сейчас нет видимых live-строк",
+                noLiveRowsSub: "Панель опрашивает источники; это лишь значит, что сейчас нет ничего новее.",
+                tryPull: "Пока нет живых строк. Попробуйте загрузить live или дождитесь следующего обновления.",
+                newestRowLabel: "Самая новая строка",
+                rows: "строк",
+                citiesRanked: "городов в рейтинге",
+                districtsRanked: "районов в рейтинге",
+                eventsInRange: "событий в выбранном диапазоне",
+                groupedEvents: "сгруппированных событий",
+                busiestHour: "событий в пиковый час",
+                to: "до",
+                liveThreat: "Живая угроза",
+                activeForTen: "Окно 12 минут",
+                startedAt: "Началось в",
+                endsIn: "Осталось",
+                sourceStatusLabel: "Статус источника:",
+                sourceUrlLabel: "URL источника:",
+            },
+        };
+
+        function tr(key) {
+            return (ui[currentLang] && ui[currentLang][key]) || ui.he[key] || key;
+        }
+
+        function pickLabel(value, fallback = "-") {
+            if (value && typeof value === "object") {
+                return value[currentLang] || value.he || value.en || value.ru || fallback;
+            }
+            return value || fallback;
+        }
+
+        function fmtDateTime(value) {
+            if (!value) return "-";
+            const date = new Date(value);
+            return `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`;
+        }
+
+        function fmtDate(value) {
+            if (!value) return "-";
+            return new Date(value).toLocaleDateString();
+        }
+
+        function fmtNum(value) {
+            return Number(value || 0).toLocaleString();
+        }
+
+        function color(index) {
+            return palette[index % palette.length];
+        }
+
+        function getCookie(name) {
+            const parts = document.cookie ? document.cookie.split(";") : [];
+            for (const part of parts) {
+                const trimmed = part.trim();
+                if (trimmed.startsWith(name + "=")) {
+                    return decodeURIComponent(trimmed.slice(name.length + 1));
+                }
+            }
+            return "";
+        }
+
+        async function postJson(url, payload = null) {
+            const options = {
+                method: "POST",
+                headers: {
+                    "X-CSRFToken": getCookie("csrftoken"),
+                },
+            };
+            if (payload !== null) {
+                options.headers["Content-Type"] = "application/json";
+                options.body = JSON.stringify(payload);
+            }
+            return fetch(url, options);
+        }
+
+        function setLanguage(lang) {
+            currentLang = lang;
+            localStorage.setItem("board_lang", lang);
+            document.documentElement.lang = lang;
+            document.documentElement.dir = lang === "he" ? "rtl" : "ltr";
+            document.getElementById("lang-he").classList.toggle("active", lang === "he");
+            document.getElementById("lang-en").classList.toggle("active", lang === "en");
+            document.getElementById("lang-ru").classList.toggle("active", lang === "ru");
+
+            const textMap = {
+                "hero-eyebrow": tr("heroEyebrow"),
+                "hero-title": tr("title"),
+                "hero-copy": tr("heroCopy"),
+                "apply-range": tr("applyRange"),
+                "pull-realtime": tr("pullLive"),
+                "pull-history": tr("pullHistory"),
+                "sync-state-label": tr("syncState"),
+                "sync-state-sub": tr("syncSub"),
+                "source-status-label": tr("sourceStatusLabel"),
+                "source-url-label": tr("sourceUrlLabel"),
+                "last-poll-label": tr("lastPoll"),
+                "last-poll-sub": tr("lastPollSub"),
+                "newest-row-label": tr("newestRow"),
+                "newest-row-sub": tr("newestRowSub"),
+                "requested-end-label": tr("requestedEnd"),
+                "requested-end-sub": tr("requestedEndSub"),
+                "effective-end-label": tr("effectiveEnd"),
+                "effective-end-sub": tr("effectiveEndSub"),
+                "event-alerts-label": tr("eventAlerts"),
+                "event-alerts-sub": tr("eventAlertsSub"),
+                "city-hit-label": tr("cityHits"),
+                "city-hit-sub": tr("cityHitsSub"),
+                "peak-city-label": tr("peakCity"),
+                "peak-district-label": tr("peakDistrict"),
+                "peak-hour-label": tr("peakHour"),
+                "tracked-map-label": tr("trackedMap"),
+                "tracked-map-sub": tr("trackedMapSub"),
+                "map-density-kicker": tr("mapDensity"),
+                "interactive-map-title": tr("interactiveMap"),
+                "map-chip-tiles": tr("mapChipTiles"),
+                "map-chip-size": tr("mapChipSize"),
+                "live-pool-kicker": tr("livePool"),
+                "live-pool-title": tr("newestRows"),
+                "live-pool-sub": tr("newestRowsSub"),
+                "timeline-kicker": tr("timeline"),
+                "alerts-by-day-title": tr("alertsByDay"),
+                "event-count-pill": tr("eventCount"),
+                "rhythm-kicker": tr("rhythm"),
+                "alerts-by-hour-title": tr("alertsByHour"),
+                "hour-cycle-pill": tr("hourCycle"),
+                "pressure-kicker": tr("pressure"),
+                "alerts-by-minute-title": tr("alertsByMinute"),
+                "burst-shape-pill": tr("burstShape"),
+                "ranking-kicker": tr("ranking"),
+                "top-cities-chart-title": tr("topCities"),
+                "event-based-pill": tr("eventBased"),
+                "coverage-kicker": tr("coverage"),
+                "top-districts-chart-title": tr("topDistrictsShare"),
+                "area-split-pill": tr("areaSplit"),
+                "composition-kicker": tr("composition"),
+                "categories-sources-title": tr("categoriesSources"),
+                "pie-pill": tr("pie"),
+                "provider-mix-pill": tr("providerMix"),
+                "full-ranking-kicker": tr("fullRanking"),
+                "top-cities-table-title": tr("topCitiesTable"),
+                "top-cities-table-sub": tr("topCitiesTableSub"),
+                "area-ranking-kicker": tr("areaRanking"),
+                "top-districts-table-title": tr("topDistrictsTable"),
+                "top-districts-table-sub": tr("topDistrictsTableSub"),
+                "rank-th": tr("rank"),
+                "city-th": tr("city"),
+                "events-th": tr("events"),
+                "rank-th-2": tr("rank"),
+                "district-th": tr("district"),
+                "events-th-2": tr("events"),
+            };
+
+            Object.entries(textMap).forEach(([id, value]) => {
+                const element = document.getElementById(id);
+                if (element) {
+                    element.textContent = value;
+                }
+            });
+
+            activeThreatPopups.forEach((popup) => {
+                if (popup.group) {
+                    upsertThreatPopup(popup.group);
+                }
+            });
+            scheduleMapResize(60);
+        }
+
+        function setHealth(error) {
+            const dot = document.getElementById("health-dot");
+            const label = document.getElementById("refresh-error");
+            label.textContent = error || tr("healthy");
+            dot.style.background = error ? "#ff7d75" : "#22c55e";
+            dot.style.boxShadow = error
+                ? "0 0 18px rgba(255,125,117,0.8)"
+                : "0 0 18px rgba(34,197,94,0.8)";
+        }
+
+        function formatCountdown(ms) {
+            const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+            const minutes = String(Math.floor(totalSeconds / 60)).padStart(2, "0");
+            const seconds = String(totalSeconds % 60).padStart(2, "0");
+            return `${minutes}:${seconds}`;
+        }
+
+        function groupThreatAlerts(alerts) {
+            const grouped = new Map();
+            alerts.forEach((alert) => {
+                const key = `${alert.source || ""}|${alert.occurred_at}|${alert.category || ""}`;
+                if (!grouped.has(key)) {
+                    grouped.set(key, {
+                        key,
+                        occurred_at: alert.occurred_at,
+                        category_labels: alert.category_labels,
+                        district_labels: alert.district_labels,
+                        source_labels: alert.source_labels,
+                        cities: [],
+                    });
+                }
+                const bucket = grouped.get(key);
+                bucket.cities.push({
+                    city: alert.city,
+                    city_labels: alert.city_labels,
+                });
+            });
+            return [...grouped.values()];
+        }
+
+        function removeExpiredPopup(key) {
+            const popup = activeThreatPopups.get(key);
+            if (!popup) return;
+            popup.element.remove();
+            activeThreatPopups.delete(key);
+        }
+
+        function updatePopupTimers() {
+            const now = Date.now();
+            activeThreatPopups.forEach((popup, key) => {
+                const remaining = popup.endsAtMs - now;
+                if (remaining <= 0) {
+                    removeExpiredPopup(key);
+                    return;
+                }
+                const valueNode = popup.element.querySelector("[data-popup-timer]");
+                if (valueNode) {
+                    valueNode.textContent = formatCountdown(remaining);
+                }
+            });
+
+            if (!activeThreatPopups.size && popupTimerInterval) {
+                clearInterval(popupTimerInterval);
+                popupTimerInterval = null;
+            }
+        }
+
+        function ensurePopupTimerLoop() {
+            if (!popupTimerInterval) {
+                popupTimerInterval = setInterval(updatePopupTimers, 1000);
+            }
+        }
+
+        function upsertThreatPopup(group) {
+            const container = document.getElementById("threat-popups");
+            const startedAt = new Date(group.occurred_at);
+            const endsAtMs = startedAt.getTime() + (12 * 60 * 1000);
+            if (endsAtMs <= Date.now()) {
+                return;
+            }
+
+            const cityNames = [...new Set(group.cities.map((row) => pickLabel(row.city_labels, row.city)))];
+            let popup = activeThreatPopups.get(group.key);
+            if (!popup) {
+                const element = document.createElement("div");
+                element.className = "threat-popup";
+                container.prepend(element);
+                popup = { element };
+                activeThreatPopups.set(group.key, popup);
+            }
+
+            popup.endsAtMs = endsAtMs;
+            popup.group = group;
+            popup.element.innerHTML = `
+                <div class="threat-popup-head">
+                    <div>
+                        <div class="threat-popup-kicker">${tr("liveThreat")}</div>
+                        <div class="threat-popup-title">${pickLabel(group.category_labels, "-")}</div>
+                    </div>
+                    <div class="threat-popup-timer">
+                        <div class="value" data-popup-timer>${formatCountdown(endsAtMs - Date.now())}</div>
+                        <div class="label">${tr("endsIn")}</div>
+                    </div>
+                </div>
+                <div class="threat-popup-meta">
+                    ${tr("startedAt")}: ${fmtDateTime(group.occurred_at)}<br>
+                    ${pickLabel(group.district_labels, "-")} | ${pickLabel(group.source_labels, "-")} | ${tr("activeForTen")}
+                </div>
+                <div class="threat-popup-cities">
+                    ${cityNames.slice(0, 10).map((name) => `<span>${name}</span>`).join("")}
+                </div>
+            `;
+
+            ensurePopupTimerLoop();
+            updatePopupTimers();
+        }
+
+        function showThreatPopups(alerts) {
+            groupThreatAlerts(alerts).forEach(upsertThreatPopup);
+        }
+
+        function destroyAndMakeChart(id, config) {
+            if (charts[id]) charts[id].destroy();
+            charts[id] = new Chart(document.getElementById(id), config);
+        }
+
+        function commonScales() {
+            return {
+                x: {
+                    ticks: { color: "#8e9ab0", maxRotation: 40, minRotation: 40 },
+                    grid: { color: "rgba(255,255,255,0.05)" },
+                },
+                y: {
+                    ticks: { color: "#8e9ab0" },
+                    grid: { color: "rgba(255,255,255,0.05)" },
+                },
+            };
+        }
+
+        function makeBarChart(id, labels, values, col, horizontal = false) {
+            destroyAndMakeChart(id, {
+                type: "bar",
+                data: {
+                    labels,
+                    datasets: [{
+                        data: values,
+                        backgroundColor: col,
+                        borderRadius: 8,
+                        borderSkipped: false,
+                        maxBarThickness: horizontal ? 18 : 28,
+                    }],
+                },
+                options: {
+                    indexAxis: horizontal ? "y" : "x",
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: commonScales(),
+                },
+            });
+        }
+
+        function makeLineChart(id, labels, values, col) {
+            destroyAndMakeChart(id, {
+                type: "line",
+                data: {
+                    labels,
+                    datasets: [{
+                        data: values,
+                        borderColor: col,
+                        backgroundColor: col,
+                        tension: 0.28,
+                        pointRadius: 3,
+                        pointHoverRadius: 4,
+                        fill: false,
+                    }],
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: commonScales(),
+                },
+            });
+        }
+
+        function makePieChart(id, rows, key) {
+            destroyAndMakeChart(id, {
+                type: "doughnut",
+                data: {
+                    labels: rows.map((row) => row[key]),
+                    datasets: [{
+                        data: rows.map((row) => row.count),
+                        backgroundColor: rows.map((_, index) => color(index)),
+                        borderWidth: 0,
+                    }],
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: "bottom",
+                            labels: { color: "#f8fafc", boxWidth: 12, boxHeight: 12 },
+                        },
+                    },
+                    cutout: "64%",
+                },
+            });
+        }
+
+        function initMap() {
+            map = L.map("map", { zoomControl: true, attributionControl: true }).setView([31.65, 34.95], 7);
+            L.tileLayer("https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}", {
+                maxZoom: 18,
+                subdomains: ["mt0", "mt1", "mt2", "mt3"],
+            }).addTo(map);
+            scheduleMapResize(80);
+        }
+
+        function scheduleMapResize(delay = 0) {
+            if (!map) return;
+            if (mapResizeTimer) clearTimeout(mapResizeTimer);
+            mapResizeTimer = setTimeout(() => {
+                map.invalidateSize(false);
+            }, delay);
+        }
+
+        function renderMap(points) {
+            if (!map) initMap();
+            mapMarkers.forEach((marker) => map.removeLayer(marker));
+            mapMarkers = [];
+            const bounds = [];
+
+            points.forEach((point) => {
+                if (point.lat == null || point.lng == null) return;
+                const marker = L.circleMarker([point.lat, point.lng], {
+                    radius: Math.max(8, Math.min(28, 8 + point.count / 14)),
+                    color: "#ffd0cc",
+                    fillColor: "#ff4136",
+                    fillOpacity: 0.75,
+                    weight: 2,
+                }).bindPopup(
+                    `<strong>${pickLabel(point.city_labels, point.city_label || point.city)}</strong><br>` +
+                    `${tr("events")}: ${fmtNum(point.count)}<br>` +
+                    `${tr("rank")}: ${fmtNum(point.rank)}`
+                );
+                marker.addTo(map);
+                mapMarkers.push(marker);
+                bounds.push([point.lat, point.lng]);
+            });
+
+            document.getElementById("map-count").textContent = fmtNum(points.length);
+            if (bounds.length) map.fitBounds(bounds, { padding: [36, 36] });
+            scheduleMapResize(40);
+        }
+
+        function renderFeedRows(alerts, replace = false) {
+            const list = document.getElementById("feed-list");
+            if (replace) list.innerHTML = "";
+
+            if (replace && !alerts.length) {
+                list.innerHTML = `<div class="feed-empty">${tr("tryPull")}</div>`;
+                document.getElementById("feed-banner-title").textContent = tr("noLiveRows");
+                document.getElementById("feed-banner-meta").textContent = tr("noLiveRowsSub");
+                document.getElementById("feed-banner-count").textContent = `0 ${tr("rows")}`;
+                return;
+            }
+
+            alerts.forEach((alert) => {
+                const item = document.createElement("div");
+                item.className = "feed-item";
+                item.innerHTML = `
+                    <div class="feed-top">
+                        <div class="feed-city">${pickLabel(alert.city_labels, alert.city_label || alert.city || "-")}</div>
+                        <div class="feed-time">${fmtDateTime(alert.occurred_at)}</div>
+                    </div>
+                    <div class="feed-meta">${pickLabel(alert.district_labels, alert.district || "-")} | ${pickLabel(alert.category_labels, alert.category || "-")} | ${pickLabel(alert.source_labels, alert.source || "-")}</div>
+                `;
+                if (replace) {
+                    list.appendChild(item);
+                } else {
+                    if (list.firstElementChild && list.firstElementChild.classList.contains("feed-empty")) {
+                        list.innerHTML = "";
+                    }
+                    list.prepend(item);
+                }
+            });
+
+            while (list.children.length > 140) {
+                list.removeChild(list.lastElementChild);
+            }
+
+            const topAlert = alerts[0];
+            if (topAlert) {
+                document.getElementById("feed-banner-title").textContent = pickLabel(topAlert.city_labels, topAlert.city_label || topAlert.city || tr("newestRowLabel"));
+                document.getElementById("feed-banner-meta").textContent =
+                    `${fmtDateTime(topAlert.occurred_at)} | ${pickLabel(topAlert.district_labels, topAlert.district || "-")} | ${pickLabel(topAlert.source_labels, topAlert.source || "-")}`;
+            }
+            document.getElementById("feed-banner-count").textContent = `${fmtNum(list.children.length)} ${tr("rows")}`;
+        }
+
+        function renderTable(bodyId, rows, key, limit = 1000) {
+            const body = document.getElementById(bodyId);
+            body.innerHTML = "";
+            rows.slice(0, limit).forEach((row) => {
+                const tr = document.createElement("tr");
+                const label = key === "city_label"
+                    ? pickLabel(row.city_labels, row.city_label || row.city)
+                    : pickLabel(row.district_labels, row.district_label || row.district);
+                tr.innerHTML = `
+                    <td>${row.rank}</td>
+                    <td>${label || "-"}</td>
+                    <td class="num">${fmtNum(row.count)}</td>
+                `;
+                body.appendChild(tr);
+            });
+        }
+
+        function applyDerivedMetrics(data) {
+            const topCity = (data.top_cities || [])[0];
+            const topDistrict = (data.top_districts || [])[0];
+            const peakHour = [...(data.by_hour || [])].sort((a, b) => b.count - a.count)[0];
+
+            document.getElementById("peak-city").textContent = topCity ? pickLabel(topCity.city_labels, topCity.city_label || topCity.city) : "-";
+            document.getElementById("peak-city-sub").textContent = topCity ? `${fmtNum(topCity.count)} ${tr("eventsInRange")}` : "-";
+            document.getElementById("peak-district").textContent = topDistrict ? pickLabel(topDistrict.district_labels, topDistrict.district_label || topDistrict.district) : "-";
+            document.getElementById("peak-district-sub").textContent = topDistrict ? `${fmtNum(topDistrict.count)} ${tr("groupedEvents")}` : "-";
+            document.getElementById("peak-hour").textContent = peakHour ? String(peakHour.hour).padStart(2, "0") + ":00" : "-";
+            document.getElementById("peak-hour-sub").textContent = peakHour ? `${fmtNum(peakHour.count)} ${tr("busiestHour")}` : "-";
+            document.getElementById("cities-table-meta").textContent = `${fmtNum((data.top_cities || []).length)} ${tr("citiesRanked")}`;
+            document.getElementById("districts-table-meta").textContent = `${fmtNum((data.top_districts || []).length)} ${tr("districtsRanked")}`;
+        }
+
+        async function refreshRangeStats() {
+            const response = await fetch(`/api/stats/range-overview?start=${currentStart}T00:00:00Z&end=${currentEnd}T23:59:59Z`);
+            const data = await response.json();
+
+            document.getElementById("requested-end").textContent = fmtDate(data.requested_end);
+            document.getElementById("effective-end").textContent = fmtDateTime(data.effective_end);
+            document.getElementById("event-count").textContent = fmtNum(data.total_event_count);
+            document.getElementById("city-row-count").textContent = fmtNum(data.total_city_rows);
+            document.getElementById("top-range").textContent = `${fmtDate(data.start)} ${tr("to")} ${fmtDateTime(data.effective_end)}`;
+
+            renderMap(data.map_points || []);
+            renderTable("top-cities-body", data.top_cities || [], "city_label");
+            renderTable("top-districts-body", data.top_districts || [], "district");
+            applyDerivedMetrics(data);
+
+            makeLineChart("by-day-chart", (data.by_day || []).map((row) => row.day.slice(5)), (data.by_day || []).map((row) => row.count), "#ff4136");
+            makeBarChart("by-hour-chart", (data.by_hour || []).map((row) => String(row.hour).padStart(2, "0")), (data.by_hour || []).map((row) => row.count), "#ff7d75");
+            makeBarChart("by-minute-chart", (data.by_minute || []).map((row) => String(row.minute).padStart(2, "0")), (data.by_minute || []).map((row) => row.count), "#ffb648");
+            makeBarChart("cities-bar-chart", (data.top_cities || []).slice(0, 12).map((row) => pickLabel(row.city_labels, row.city_label || row.city)), (data.top_cities || []).slice(0, 12).map((row) => row.count), "#ff4136", true);
+            makeBarChart("districts-bar", (data.top_districts || []).slice(0, 12).map((row) => pickLabel(row.district_labels, row.district_label || row.district)), (data.top_districts || []).slice(0, 12).map((row) => row.count), "#5bc0ff", true);
+            makePieChart("category-pie", (data.by_category || []).map((row) => ({ ...row, localized: pickLabel(row.category_labels, row.category_label || row.category) })), "localized");
+            makePieChart("source-pie", (data.by_source || []).map((row) => ({ ...row, localized: pickLabel(row.source_labels, row.source_label || row.source) })), "localized");
+        }
+
+        async function pollFeed() {
+            try {
+                const previousNewestId = newestId;
+                const url = newestId
+                    ? `/api/alerts/feed?limit=50&refresh=1&minutes=180&since_id=${newestId}`
+                    : "/api/alerts/feed?limit=50&refresh=1&minutes=180";
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`feed_http_${response.status}`);
+                }
+                const data = await response.json();
+
+                document.getElementById("last-poll").textContent = new Date(data.server_time).toLocaleTimeString();
+                document.getElementById("newest-id").textContent = data.newest_id || "-";
+                document.getElementById("source-status-value").textContent = data.source_status || "-";
+                document.getElementById("source-url-value").textContent = data.source_url || "-";
+                setHealth(data.refresh_error || "");
+
+                if (!newestId) {
+                    renderFeedRows(data.alerts || [], true);
+                    // Rebuild visible active popups on hard refresh/cache clear.
+                    showThreatPopups(data.alerts || []);
+                } else if ((data.alerts || []).length) {
+                    renderFeedRows((data.alerts || []).slice().reverse(), false);
+                }
+
+                if (!newestId && !(data.alerts || []).length && data.source_status === "empty") {
+                    const fallbackResponse = await fetch("/api/alerts/feed?limit=50&refresh=0&include_history=1&minutes=1440");
+                    if (fallbackResponse.ok) {
+                        const fallbackData = await fallbackResponse.json();
+                        if ((fallbackData.alerts || []).length) {
+                            renderFeedRows(fallbackData.alerts || [], true);
+                            document.getElementById("feed-banner-meta").textContent =
+                                `${tr("noLiveRowsSub")} | showing recent history`;
+                        }
+                    }
+                }
+
+                if (hasBootstrappedFeed) {
+                    const popupAlerts = (data.alerts || []).filter((alert) => (alert.id || 0) > previousNewestId);
+                    if (popupAlerts.length) {
+                        showThreatPopups(popupAlerts);
+                    }
+                }
+
+                newestId = Math.max(newestId, data.newest_id || 0);
+                hasBootstrappedFeed = true;
+            } catch (error) {
+                document.getElementById("source-status-value").textContent = "error";
+                document.getElementById("source-url-value").textContent = "-";
+                setHealth(String(error));
+            }
+        }
+
+        async function restoreActiveThreatPopups() {
+            try {
+                const response = await fetch("/api/alerts/feed?limit=1000&refresh=0&include_history=1&minutes=12");
+                if (!response.ok) return;
+                const data = await response.json();
+                showThreatPopups(data.alerts || []);
+            } catch (error) {
+                // Keep UI running even if restore call fails.
+            }
+        }
+
+        async function pullRealtime() {
+            const response = await postJson("/api/alerts/pull-realtime");
+            if (!response.ok) {
+                const data = await response.json().catch(() => ({}));
+                setHealth(data.refresh_error || `pull_http_${response.status}`);
+            }
+            await pollFeed();
+            await refreshRangeStats();
+        }
+
+        async function pullHistory() {
+            await postJson("/api/alerts/pull-history", { start: `${currentStart}T00:00:00Z` });
+            newestId = 0;
+            await pollFeed();
+            await refreshRangeStats();
+        }
+
+        document.getElementById("apply-range").addEventListener("click", async () => {
+            currentStart = document.getElementById("range-start").value || currentStart;
+            currentEnd = document.getElementById("range-end").value || currentEnd;
+            await refreshRangeStats();
+        });
+
+        document.getElementById("lang-he").addEventListener("click", async () => {
+            setLanguage("he");
+            newestId = 0;
+            await pollFeed();
+            await refreshRangeStats();
+        });
+        document.getElementById("lang-en").addEventListener("click", async () => {
+            setLanguage("en");
+            newestId = 0;
+            await pollFeed();
+            await refreshRangeStats();
+        });
+        document.getElementById("lang-ru").addEventListener("click", async () => {
+            setLanguage("ru");
+            newestId = 0;
+            await pollFeed();
+            await refreshRangeStats();
+        });
+        document.getElementById("pull-realtime").addEventListener("click", pullRealtime);
+        document.getElementById("pull-history").addEventListener("click", pullHistory);
+        window.addEventListener("resize", () => scheduleMapResize(100), { passive: true });
+        window.addEventListener("orientationchange", () => scheduleMapResize(180), { passive: true });
+        window.addEventListener("pageshow", () => scheduleMapResize(120), { passive: true });
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener("resize", () => scheduleMapResize(120), { passive: true });
+        }
+
+        setLanguage(currentLang);
+        pollFeed().then(async () => {
+            await restoreActiveThreatPopups();
+            await refreshRangeStats();
+        });
+        setInterval(pollFeed, pollMs);
+        setInterval(refreshRangeStats, pollMs * 4);
+    </script>
+</body>
+</html>

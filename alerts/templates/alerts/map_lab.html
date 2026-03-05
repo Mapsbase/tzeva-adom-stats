@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Map Lab 3D</title>
+    <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <style>
+        :root {
+            --bg: #070b13;
+            --panel: rgba(13, 18, 31, 0.9);
+            --line: rgba(255, 255, 255, 0.1);
+            --text: #f4f7ff;
+            --muted: #95a2c3;
+            --danger: #ff4338;
+        }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text); font-family: "Segoe UI", Arial, sans-serif; }
+        .page { display: grid; grid-template-rows: auto 1fr; height: 100%; width: 100%; }
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--line);
+            background: linear-gradient(180deg, rgba(15,22,38,.96), rgba(9,13,23,.92));
+            flex-wrap: wrap;
+        }
+        .title { font-weight: 800; font-size: 18px; margin-inline-end: 10px; }
+        input, button {
+            height: 40px;
+            border-radius: 999px;
+            border: 1px solid var(--line);
+            background: rgba(0,0,0,.24);
+            color: var(--text);
+            padding: 0 14px;
+            font-size: 14px;
+        }
+        button { cursor: pointer; font-weight: 700; }
+        button.primary { background: linear-gradient(135deg, var(--danger), #b31717); border-color: transparent; }
+        button.ghost { background: rgba(255,255,255,.05); }
+        .meta {
+            margin-inline-start: auto;
+            color: var(--muted);
+            font-size: 13px;
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+        }
+        #map-wrap { position: relative; height: 100%; width: 100%; }
+        #map { position: absolute; inset: 0; }
+        .legend {
+            position: absolute;
+            left: 12px;
+            top: 12px;
+            z-index: 5;
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--line);
+            background: var(--panel);
+            font-size: 12px;
+            color: var(--muted);
+            line-height: 1.45;
+            max-width: 320px;
+        }
+        .legend strong { color: var(--text); font-size: 13px; display: block; margin-bottom: 4px; }
+        .label-marker {
+            padding: 5px 8px;
+            border-radius: 999px;
+            border: 1px solid rgba(255,255,255,.2);
+            color: #fff;
+            background: rgba(5, 10, 18, 0.72);
+            font-size: 11px;
+            font-weight: 700;
+            white-space: nowrap;
+        }
+        .maplibregl-popup-content {
+            background: rgba(10, 15, 27, 0.96);
+            color: #f4f7ff;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 10px 12px;
+        }
+        .maplibregl-popup-tip {
+            border-top-color: rgba(10, 15, 27, 0.96) !important;
+            border-bottom-color: rgba(10, 15, 27, 0.96) !important;
+        }
+        @media (max-width: 760px) {
+            .toolbar { padding: 10px; }
+            .title { width: 100%; margin-bottom: 4px; }
+            .meta { width: 100%; margin-inline-start: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="toolbar">
+            <div class="title">Map Lab 3D - Active Siren Focus</div>
+            <input id="start" type="date" value="2026-02-27">
+            <input id="end" type="date" value="2026-03-31">
+            <button id="apply" class="primary" type="button">Load Range</button>
+            <button id="open-main" class="ghost" type="button">Main Board</button>
+            <div class="meta">
+                <span>Cities: <strong id="city-count">0</strong></span>
+                <span>Districts: <strong id="district-count">0</strong></span>
+                <span>Live: <strong id="live-state">NORMAL</strong></span>
+            </div>
+        </div>
+        <div id="map-wrap">
+            <div id="map"></div>
+            <div class="legend">
+                <strong>Live Logic</strong>
+                When there are active sirens (last 12 minutes), map shows only active cities.
+                When there are no active sirens, map returns to normal range view.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ISRAEL_BOUNDS = [[34.15, 29.25], [35.95, 33.55]];
+        const ACTIVE_WINDOW_MINUTES = 12;
+        const LIVE_POLL_MS = 3000;
+
+        const map = new maplibregl.Map({
+            container: "map",
+            style: {
+                version: 8,
+                sources: {
+                    light: {
+                        type: "raster",
+                        tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+                        tileSize: 256,
+                        attribution: "© OpenStreetMap contributors",
+                    },
+                    dem: {
+                        type: "raster-dem",
+                        tiles: ["https://demotiles.maplibre.org/terrain-rgb/{z}/{x}/{y}.png"],
+                        tileSize: 256,
+                        maxzoom: 13,
+                    },
+                },
+                layers: [{ id: "light", type: "raster", source: "light" }],
+                glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+            },
+            center: [34.95, 31.45],
+            zoom: 7.6,
+            pitch: 58,
+            bearing: -14,
+            antialias: true,
+            maxBounds: ISRAEL_BOUNDS,
+        });
+
+        map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+
+        const districtLabelMarkers = [];
+        let pulseFrame = null;
+        let cityCoordinateIndex = new Map();
+        let normalPointsCache = [];
+        let isLiveMode = false;
+
+        function startPulseAnimation() {
+            if (pulseFrame) cancelAnimationFrame(pulseFrame);
+            const step = () => {
+                const t = Date.now() / 430;
+                const pulse = 2.5 + (Math.sin(t) + 1) * 1.8;
+                if (map.getLayer("city-dots")) {
+                    map.setPaintProperty("city-dots", "circle-stroke-width", pulse);
+                    map.setPaintProperty("city-dots", "circle-opacity", 0.5 + (Math.sin(t * 0.75) + 1) * 0.12);
+                }
+                pulseFrame = requestAnimationFrame(step);
+            };
+            pulseFrame = requestAnimationFrame(step);
+        }
+
+        function hull(points) {
+            if (points.length < 3) return points.slice();
+            const sorted = points.slice().sort((a, b) => (a.lng - b.lng) || (a.lat - b.lat));
+            const cross = (o, a, b) => (a.lng - o.lng) * (b.lat - o.lat) - (a.lat - o.lat) * (b.lng - o.lng);
+            const lower = [];
+            for (const p of sorted) {
+                while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+                lower.push(p);
+            }
+            const upper = [];
+            for (let i = sorted.length - 1; i >= 0; i -= 1) {
+                const p = sorted[i];
+                while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+                upper.push(p);
+            }
+            lower.pop();
+            upper.pop();
+            return lower.concat(upper);
+        }
+
+        function centroid(points) {
+            if (!points.length) return null;
+            const sum = points.reduce((acc, point) => ({ lng: acc.lng + point.lng, lat: acc.lat + point.lat }), { lng: 0, lat: 0 });
+            return { lng: sum.lng / points.length, lat: sum.lat / points.length };
+        }
+
+        function clearDistrictLabels() {
+            districtLabelMarkers.forEach((marker) => marker.remove());
+            districtLabelMarkers.length = 0;
+        }
+
+        function upsertSource(id, data) {
+            if (map.getSource(id)) {
+                map.getSource(id).setData(data);
+            } else {
+                map.addSource(id, { type: "geojson", data });
+            }
+        }
+
+        function ensureLayer(id, layer, beforeId = null) {
+            if (!map.getLayer(id)) {
+                if (beforeId && map.getLayer(beforeId)) map.addLayer(layer, beforeId);
+                else map.addLayer(layer);
+            }
+        }
+
+        function setLiveState(active) {
+            isLiveMode = active;
+            const node = document.getElementById("live-state");
+            node.textContent = active ? "ACTIVE" : "NORMAL";
+            node.style.color = active ? "#ff8e86" : "#8df0b1";
+        }
+
+        function indexPoints(points) {
+            cityCoordinateIndex = new Map();
+            points.forEach((point) => {
+                if (point && point.city) cityCoordinateIndex.set(point.city, point);
+            });
+        }
+
+        function buildDistrictFeatures(points) {
+            const groups = new Map();
+            points.forEach((point) => {
+                const name = point.district || "Unknown";
+                if (!groups.has(name)) groups.set(name, []);
+                groups.get(name).push(point);
+            });
+
+            const polygonFeatures = [];
+            const edgePointFeatures = [];
+
+            groups.forEach((groupPoints, district) => {
+                if (groupPoints.length < 3) return;
+                const outline = hull(groupPoints);
+                if (outline.length < 3) return;
+
+                const ring = outline.map((point) => [point.lng, point.lat]);
+                ring.push([outline[0].lng, outline[0].lat]);
+                polygonFeatures.push({
+                    type: "Feature",
+                    properties: { district, city_count: groupPoints.length },
+                    geometry: { type: "Polygon", coordinates: [ring] },
+                });
+
+                outline.forEach((point, index) => {
+                    edgePointFeatures.push({
+                        type: "Feature",
+                        properties: { district, edge_rank: index + 1 },
+                        geometry: { type: "Point", coordinates: [point.lng, point.lat] },
+                    });
+                });
+
+                const center = centroid(outline);
+                if (center) {
+                    const node = document.createElement("div");
+                    node.className = "label-marker";
+                    node.textContent = district;
+                    const marker = new maplibregl.Marker({ element: node, anchor: "center" })
+                        .setLngLat([center.lng, center.lat])
+                        .addTo(map);
+                    districtLabelMarkers.push(marker);
+                }
+            });
+
+            return { polygonFeatures, edgePointFeatures };
+        }
+
+        function render(points) {
+            clearDistrictLabels();
+            document.getElementById("city-count").textContent = String(points.length);
+
+            const pointFeatures = points.map((point) => ({
+                type: "Feature",
+                properties: {
+                    city: point.city_label || point.city,
+                    district: point.district || "",
+                    count: point.count || 0,
+                },
+                geometry: { type: "Point", coordinates: [point.lng, point.lat] },
+            }));
+
+            const { polygonFeatures, edgePointFeatures } = buildDistrictFeatures(points);
+            document.getElementById("district-count").textContent = String(new Set(points.map((p) => p.district || "Unknown")).size);
+
+            const nationalHull = points.length >= 3 ? hull(points) : [];
+            const israelBorderFeatureCollection = {
+                type: "FeatureCollection",
+                features: nationalHull.length >= 3 ? [{
+                    type: "Feature",
+                    properties: { name: "Israel Footprint" },
+                    geometry: {
+                        type: "Polygon",
+                        coordinates: [[
+                            ...nationalHull.map((point) => [point.lng, point.lat]),
+                            [nationalHull[0].lng, nationalHull[0].lat],
+                        ]],
+                    },
+                }] : [],
+            };
+
+            const outsideMaskFeatureCollection = {
+                type: "FeatureCollection",
+                features: nationalHull.length >= 3 ? [{
+                    type: "Feature",
+                    properties: { name: "Outside Mask" },
+                    geometry: {
+                        type: "Polygon",
+                        coordinates: [
+                            [
+                                [24.0, 27.0], [39.0, 27.0], [39.0, 37.0], [24.0, 37.0], [24.0, 27.0],
+                            ],
+                            [
+                                ...nationalHull.map((point) => [point.lng, point.lat]),
+                                [nationalHull[0].lng, nationalHull[0].lat],
+                            ],
+                        ],
+                    },
+                }] : [],
+            };
+
+            upsertSource("cities", { type: "FeatureCollection", features: pointFeatures });
+            upsertSource("districts", { type: "FeatureCollection", features: polygonFeatures });
+            upsertSource("district_edges", { type: "FeatureCollection", features: edgePointFeatures });
+            upsertSource("israel_border", israelBorderFeatureCollection);
+            upsertSource("outside_mask", outsideMaskFeatureCollection);
+
+            ensureLayer("outside-mask", {
+                id: "outside-mask",
+                type: "fill",
+                source: "outside_mask",
+                paint: { "fill-color": "#000000", "fill-opacity": 0.36 },
+            });
+
+            ensureLayer("district-fill", {
+                id: "district-fill",
+                type: "fill",
+                source: "districts",
+                paint: { "fill-color": "#3cb4ff", "fill-opacity": 0.13 },
+            });
+
+            ensureLayer("district-line", {
+                id: "district-line",
+                type: "line",
+                source: "districts",
+                paint: { "line-color": "#80dcff", "line-width": 2.2, "line-opacity": 0.8 },
+            });
+
+            ensureLayer("district-edge-dots", {
+                id: "district-edge-dots",
+                type: "circle",
+                source: "district_edges",
+                paint: {
+                    "circle-color": "#9ef2ff",
+                    "circle-radius": 3.2,
+                    "circle-opacity": 0.9,
+                    "circle-stroke-color": "#05202e",
+                    "circle-stroke-width": 1,
+                },
+            });
+
+            ensureLayer("city-dots", {
+                id: "city-dots",
+                type: "circle",
+                source: "cities",
+                paint: {
+                    "circle-color": "#ff4d43",
+                    "circle-opacity": 0.7,
+                    "circle-stroke-color": "#ffd1cc",
+                    "circle-stroke-width": 2.5,
+                    "circle-radius": ["interpolate", ["linear"], ["get", "count"], 1, 4, 20, 8, 60, 13, 200, 20],
+                },
+            });
+
+            ensureLayer("city-dots-glow", {
+                id: "city-dots-glow",
+                type: "circle",
+                source: "cities",
+                paint: {
+                    "circle-color": "#ff9a90",
+                    "circle-opacity": 0.22,
+                    "circle-radius": ["interpolate", ["linear"], ["get", "count"], 1, 10, 20, 18, 60, 26, 200, 34],
+                },
+            });
+
+            ensureLayer("israel-border-fill", {
+                id: "israel-border-fill",
+                type: "fill",
+                source: "israel_border",
+                paint: { "fill-color": "rgba(220, 232, 196, 0.2)", "fill-outline-color": "#000000" },
+            });
+
+            ensureLayer("israel-border-shadow", {
+                id: "israel-border-shadow",
+                type: "line",
+                source: "israel_border",
+                paint: { "line-color": "#000000", "line-width": 10, "line-opacity": 0.35, "line-blur": 5.5 },
+            }, "israel-border-line");
+
+            ensureLayer("israel-border-line", {
+                id: "israel-border-line",
+                type: "line",
+                source: "israel_border",
+                paint: { "line-color": "#111111", "line-width": 2.8, "line-opacity": 0.95 },
+            });
+
+            startPulseAnimation();
+
+            const bounds = new maplibregl.LngLatBounds();
+            points.forEach((point) => bounds.extend([point.lng, point.lat]));
+            if (!bounds.isEmpty()) {
+                map.fitBounds(bounds, { padding: 70, duration: 800, pitch: 50, bearing: map.getBearing() });
+            }
+        }
+
+        function buildActivePointsFromAlerts(alerts) {
+            const grouped = new Map();
+            alerts.forEach((alert) => {
+                const city = alert.city;
+                if (!city || !cityCoordinateIndex.has(city)) return;
+                grouped.set(city, (grouped.get(city) || 0) + 1);
+            });
+
+            const activePoints = [];
+            grouped.forEach((count, city) => {
+                const base = cityCoordinateIndex.get(city);
+                activePoints.push({ ...base, count });
+            });
+            return activePoints;
+        }
+
+        async function loadRange() {
+            const start = document.getElementById("start").value;
+            const end = document.getElementById("end").value;
+            const url = `/api/stats/range-overview?start=${start}T00:00:00Z&end=${end}T23:59:59Z`;
+            const response = await fetch(url);
+            const data = await response.json();
+            normalPointsCache = data.map_points || [];
+            indexPoints(normalPointsCache);
+            setLiveState(false);
+            render(normalPointsCache);
+        }
+
+        async function pollLiveActiveAlerts() {
+            try {
+                const response = await fetch(`/api/alerts/feed?limit=3000&refresh=1&minutes=${ACTIVE_WINDOW_MINUTES}`);
+                if (!response.ok) return;
+                const data = await response.json();
+                const alerts = data.alerts || [];
+                const activePoints = buildActivePointsFromAlerts(alerts);
+
+                if (activePoints.length) {
+                    setLiveState(true);
+                    render(activePoints);
+                } else if (isLiveMode) {
+                    setLiveState(false);
+                    render(normalPointsCache);
+                }
+            } catch (error) {
+                // Keep current map state on transient errors.
+            }
+        }
+
+        map.on("load", () => {
+            map.setTerrain({ source: "dem", exaggeration: 1.45 });
+            if (typeof map.setFog === "function") {
+                map.setFog({
+                    range: [0.5, 8],
+                    color: "rgba(12, 18, 34, 0.8)",
+                    "horizon-blend": 0.2,
+                    "space-color": "rgba(2, 6, 13, 1)",
+                    "high-color": "rgba(25, 33, 53, 0.55)",
+                });
+            }
+
+            loadRange().catch(() => {});
+            pollLiveActiveAlerts().catch(() => {});
+            setInterval(() => pollLiveActiveAlerts().catch(() => {}), LIVE_POLL_MS);
+
+            map.on("click", "city-dots", (event) => {
+                const feature = event.features && event.features[0];
+                if (!feature) return;
+                const coords = feature.geometry.coordinates.slice();
+                const p = feature.properties || {};
+                new maplibregl.Popup({ closeButton: true, closeOnClick: true })
+                    .setLngLat(coords)
+                    .setHTML(
+                        `<strong>${p.city || "-"}</strong><br>` +
+                        `District: ${p.district || "-"}<br>` +
+                        `Events: ${p.count || 0}`
+                    )
+                    .addTo(map);
+            });
+
+            map.on("mouseenter", "city-dots", () => { map.getCanvas().style.cursor = "pointer"; });
+            map.on("mouseleave", "city-dots", () => { map.getCanvas().style.cursor = ""; });
+        });
+
+        document.getElementById("apply").addEventListener("click", () => loadRange().catch(() => {}));
+        document.getElementById("open-main").addEventListener("click", () => { window.location.href = "/"; });
+    </script>
+</body>
+</html>
