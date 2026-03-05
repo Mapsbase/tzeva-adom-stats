@@ -106,3 +106,5 @@ The page:
   - live source envs as needed (`OREF_REALTIME_URLS`, `LIVE_BACKUP_NOTIFICATIONS_URL`, etc.)
 
 Important: `/map-lab/` now polls `/api/alerts/feed` with `refresh=0` to avoid triggering upstream fetch/write on every client poll. Run a worker/cron (`fetch_realtime` or `run_live_poller`) for continuous ingestion.
+
+Startup now includes `python manage.py bootstrap_data`, which ingests history only when `alerts_alert` is empty. Default bootstrap start is `2026-02-27T00:00:00Z`.
